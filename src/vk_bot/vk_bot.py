@@ -24,24 +24,14 @@ class VkBot:
         )
         
     def handle_message(self, user_id: int, text: str):
-        
-        if not user_exists(user_id):
-            create_user(user_id, "Иван", "Иванов", "https://vk.com/id123", 25, "Мужской", "Москва")                
-        
-        
-        
-        # vk_user = VKUser(self.__token, user_id)
-        # user_info = vk_user.user_info()
-        
-        # if user_info['is_closed']:
-        #     self.send_msg(user_id, f"К сожалению, у вас закрытый аккаунт. Можете указать данные вручную")
-            
-        # text = text.lower().strip()
-        # if text.startswith('/'):
-        #     self.send_msg(user_id, "Привет")
+        pass
+        # if not user_exists(user_id):
+        #     self.send_msg(user_id, "Добро пожаловать!")
+        #     # create_user(user_id, user_info['first_name'], "last_name", f"https://vk.com/id{user_info['id']}", 25, "Мужской", "Москва")
         # else:
-        #     self.send_msg(user_id, f"К сожалению, у вас закрытый аккаунт. Можете указать данные вручную")
-            
+        #     self.send_msg(user_id, "Добро пожаловать! Нам нужно собрать некоторую информацию о вас.")
+        #     self.start_info_collection(user_id)
+        
     def run(self):
         print("Бот запущен")
         for event in self.longpoll.listen():
