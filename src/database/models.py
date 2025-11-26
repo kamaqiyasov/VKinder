@@ -1,38 +1,18 @@
 import enum
+import json
+
 from datetime import datetime
 from sqlalchemy import BigInteger, Enum, Identity, Integer, String, Text, Boolean, DateTime, ForeignKey, ARRAY, CheckConstraint, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-import json
-from sqlalchemy import BigInteger, Enum, Identity, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
+
 
 Base = declarative_base()
-
 
 class BaseModel(Base):
     __abstract__ = True
     __allow_unmapped__ = True
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
-
-
-class Gender(enum.Enum):
-    MALE = "Мужской"
-    FEMALE = "Женский"
-
-
-class SearchGender(enum.Enum):
-    MALE = "male"
-    FEMALE = "female"
-    ANY = "any"
-
-
-class ActionType(enum.Enum):
-    LIKE = "like"
-    DISLIKE = "dislike"
-    VIEW = "view"
-    SKIP = "skip"
 
 
 class User(BaseModel):
@@ -43,10 +23,17 @@ class User(BaseModel):
     lastname: Mapped[str] = mapped_column(String(50), nullable=False)
     user_vk_link: Mapped[str] = mapped_column(String, nullable=False)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
-    gender: Mapped[Gender] = mapped_column(Enum(Gender))
+    gender: Mapped[str] = mapped_column(String(10), nullable=False)
     city: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            gender.in_(['male', 'female']), 
+            name='valid_gender'
+        ),
+    )
 
     # Связи
     profile: Mapped["Profile"] = relationship("Profile", back_populates="user", uselist=False)
@@ -62,7 +49,7 @@ class Profile(BaseModel):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
     interests: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=True)
-    search_gender: Mapped[SearchGender] = mapped_column(Enum(SearchGender), nullable=False)
+    search_gender: Mapped[str] = mapped_column(String(10), nullable=False)
     search_age_min: Mapped[int] = mapped_column(Integer, nullable=False)
     search_age_max: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -73,6 +60,10 @@ class Profile(BaseModel):
     __table_args__ = (
         CheckConstraint('search_age_min >= 18', name='check_search_age_min'),
         CheckConstraint('search_age_max >= search_age_min', name='check_search_age_range'),
+        CheckConstraint(
+            search_gender.in_(['male', 'female', 'any']), 
+            name='valid_seatch_gender'
+            )
     )
 
 
@@ -81,7 +72,7 @@ class UserAction(BaseModel):
 
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     target_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    action_type: Mapped[ActionType] = mapped_column(Enum(ActionType), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(10), nullable=False)
     action_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Связи
@@ -90,6 +81,10 @@ class UserAction(BaseModel):
 
     __table_args__ = (
         UniqueConstraint('user_id', 'target_user_id', 'action_type', name='uq_user_action'),
+        CheckConstraint(
+            action_type.in_(['like', 'dislike', 'view', 'skip']),
+            name='valid_action_type'
+        )
     )
 
 
