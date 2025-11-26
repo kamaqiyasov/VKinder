@@ -1,5 +1,6 @@
 import enum
-from sqlalchemy import BigInteger, Enum, Identity, Integer, String
+import json
+from sqlalchemy import BigInteger, Enum, Identity, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import declarative_base
 
@@ -26,3 +27,16 @@ class User(BaseModel):
     age: Mapped[int] = mapped_column(Integer, nullable=False)
     gender: Mapped[Gender] = mapped_column(Enum(Gender))
     city: Mapped[str] = mapped_column(String, nullable=False)
+    
+class UserState(Base):
+    __tablename__ = "user_states"
+    
+    user_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    state: Mapped[str] = mapped_column(String(100), nullable=True)
+    data: Mapped[str] = mapped_column(Text, default="{}")
+    
+    def get_data(self) -> dict:
+        return json.loads(self.data) if self.data else {}
+    
+    def set_data(self, data: dict):
+        self.data = json.dumps(data, ensure_ascii=False)
