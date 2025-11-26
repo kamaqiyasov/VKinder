@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from src.config import settings
-from src.database.models import Base  # Импорт всех моделей происходит здесь
+from src.database.models import Base  
 
 engine = create_engine(
     url=settings.DATABASE_URL_psycopg,
