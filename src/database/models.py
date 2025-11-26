@@ -1,114 +1,108 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 import enum
+from datetime import datetime
+from sqlalchemy import BigInteger, Enum, Identity, Integer, String, Text, Boolean, DateTime, ForeignKey, ARRAY, \
+    CheckConstraint, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+
+class BaseModel(Base):
+    __abstract__ = True
+    __allow_unmapped__ = True
+
+    id: Mapped[int] = mapped_column(Identity(), primary_key=True)
+
+
 class Gender(enum.Enum):
-    FEMALE = 1
-    MALE = 2
+    MALE = "Мужской"
+    FEMALE = "Женский"
+
 
 class SearchGender(enum.Enum):
-    FEMALE = 1
-    MALE = 2
-    ALL = 3
+    MALE = "male"
+    FEMALE = "female"
+    ANY = "any"
 
-class BotUser(Base):
-    __tablename__ = 'bot_users'
 
-    id = Column(Integer, primary_key=True)
-    vk_id = Column(Integer, unique=True, nullable=False)
-    first_name = Column(String(100))
-    last_name = Column(String(100))
-    age = Column(Integer)
-    sex = Column(Integer)
-    city = Column(String(100))
+class ActionType(enum.Enum):
+    LIKE = "like"
+    DISLIKE = "dislike"
+    VIEW = "view"
+    SKIP = "skip"
 
-    # Отношения
-    favorites = relationship('Favorite', back_populates='bot_user', cascade="all, delete-orphan")
-    blacklist = relationship('Blacklist', back_populates='bot_user', cascade="all, delete-orphan")
-    search_preferences = relationship('SearchPreferences', back_populates='bot_user', uselist=False, cascade="all, delete-orphan")
 
-class UserState(Base):
-    __tablename__ = 'user_states'
+class User(BaseModel):
+    __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)
-    vk_id = Column(Integer, unique=True, nullable=False)
-    current_state = Column(String(50), default='start')
-    state_data = Column(JSON, default={})
-    updated_at = Column(DateTime, default=func.now())
+    vk_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    firstname: Mapped[str] = mapped_column(String(50), nullable=False)
+    lastname: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_vk_link: Mapped[str] = mapped_column(String, nullable=False)
+    age: Mapped[int] = mapped_column(Integer, nullable=False)
+    gender: Mapped[Gender] = mapped_column(Enum(Gender))
+    city: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-class Profile(Base):
-    __tablename__ = 'profiles'
+    # Связи
+    profile: Mapped["Profile"] = relationship("Profile", back_populates="user", uselist=False)
+    actions: Mapped[list["UserAction"]] = relationship("UserAction", foreign_keys="[UserAction.user_id]",
+                                                       back_populates="user")
+    blacklists: Mapped[list["Blacklist"]] = relationship("Blacklist", foreign_keys="[Blacklist.user_id]",
+                                                         back_populates="user")
 
-    id = Column(Integer, primary_key=True)
-    vk_id = Column(Integer, unique=True, nullable=False)
-    first_name = Column(String(100))
-    last_name = Column(String(100))
-    profile_url = Column(String(255))
-    age = Column(Integer)
-    sex = Column(Integer)
-    city = Column(String(100))
 
-    # Отношения
-    photos = relationship('Photo', back_populates='profile', cascade="all, delete-orphan")
-    favorites = relationship('Favorite', back_populates='profile', cascade="all, delete-orphan")
-    blacklist_entries = relationship('Blacklist', back_populates='profile', cascade="all, delete-orphan")
+class Profile(BaseModel):
+    __tablename__ = "profiles"
 
-class Photo(Base):
-    __tablename__ = 'photos'
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    interests: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=True)
+    search_gender: Mapped[SearchGender] = mapped_column(Enum(SearchGender), nullable=False)
+    search_age_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    search_age_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    id = Column(Integer, primary_key=True)
-    profile_id = Column(Integer, ForeignKey('profiles.id'))
-    photo_url = Column(String(500), nullable=False)
-    likes_count = Column(Integer, default=0)
-    added_at = Column(DateTime, default=func.now())
+    # Связи
+    user: Mapped["User"] = relationship("User", back_populates="profile")
 
-    # Отношения
-    profile = relationship("Profile", back_populates="photos")
+    __table_args__ = (
+        CheckConstraint('search_age_min >= 18', name='check_search_age_min'),
+        CheckConstraint('search_age_max >= search_age_min', name='check_search_age_range'),
+    )
 
-class Favorite(Base):
-    __tablename__ = 'favorites'
 
-    id = Column(Integer, primary_key=True)
-    bot_user_id = Column(Integer, ForeignKey('bot_users.id'))
-    profile_id = Column(Integer, ForeignKey('profiles.id'))
-    added_at = Column(DateTime, default=func.now())
+class UserAction(BaseModel):
+    __tablename__ = "user_actions"
 
-    # Отношения
-    bot_user = relationship("BotUser", back_populates="favorites")
-    profile = relationship("Profile", back_populates="favorites")
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    target_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    action_type: Mapped[ActionType] = mapped_column(Enum(ActionType), nullable=False)
+    action_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # Уникальность пары пользователь-профиль
-    __table_args__ = (UniqueConstraint('bot_user_id', 'profile_id', name='uq_favorites_user_profile'),)
+    # Связи
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], back_populates="actions")
+    target_user: Mapped["User"] = relationship("User", foreign_keys=[target_user_id])
 
-class Blacklist(Base):
-    __tablename__ = 'blacklist'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'target_user_id', 'action_type', name='uq_user_action'),
+    )
 
-    id = Column(Integer, primary_key=True)
-    bot_user_id = Column(Integer, ForeignKey('bot_users.id'))
-    profile_id = Column(Integer, ForeignKey('profiles.id'))
-    added_at = Column(DateTime, default=func.now())
 
-    # Отношения
-    bot_user = relationship("BotUser", back_populates="blacklist")
-    profile = relationship("Profile", back_populates="blacklist_entries")
+class Blacklist(BaseModel):
+    __tablename__ = "blacklist"
 
-    # Уникальность пары пользователь-профиль - ИСПРАВЛЕННЫЙ СИНТАКСИС
-    __table_args__ = (UniqueConstraint('bot_user_id', 'profile_id', name='uq_blacklist_user_profile'),)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    blocked_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-class SearchPreferences(Base):
-    __tablename__ = 'search_preferences'
+    # Связи
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], back_populates="blacklists")
+    blocked_user: Mapped["User"] = relationship("User", foreign_keys=[blocked_user_id])
 
-    id = Column(Integer, primary_key=True)
-    bot_user_id = Column(Integer, ForeignKey('bot_users.id'), unique=True)
-    search_sex = Column(Integer)
-    search_age_min = Column(Integer, default=18)
-    search_age_max = Column(Integer, default=99)
-    search_city = Column(String(100))
-    updated_at = Column(DateTime, default=func.now())
-
-    # Отношения
-    bot_user = relationship("BotUser", back_populates="search_preferences")
+    __table_args__ = (
+        UniqueConstraint('user_id', 'blocked_user_id', name='uq_blacklist'),
+        CheckConstraint('user_id != blocked_user_id', name='check_no_self_block'),
+    )
