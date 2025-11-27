@@ -35,16 +35,21 @@ class VkBot:
                 if hasattr(handler, 'state_name') and handler.state_name == current_state:
                     handler(user_id, text)
         
-        if text.lower() == 'начать':
-            self.state_manager.set_state(user_id, 'awaiting_name')
-            self.send_msg(user_id, "Как тебя зовут?")
+        if text.lower() in ['начать', 'старт']:
+            self.send_msg(user_id, 'Здравствуйте! Начинаем.')
+            # Показываем клавиатуру
+        elif text.lower() in ['помощь', 'help']:
+            ...
+            # Показать информацию
+            # Показываем клавиатуру
         else:
             self.send_msg(user_id, "Напиши 'начать или старт'")
     
     def run(self) -> None:
         print("Бот запущен")
         for event in self.longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                user_id = event.message.from_id
-                text = event.message.text
-                self.handle_message(user_id, text)
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                request = event.text
+                user_id = event.user_id
+                if user_id and request:
+                    self.handle_message(user_id, request)
