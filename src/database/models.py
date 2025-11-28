@@ -15,7 +15,7 @@ class SearchGender(enum.Enum):
     MALE = 2
     ALL = 3
 
-class BotUser   (Base):
+class BotUser(Base):
     __tablename__ = 'bot_users'
 
     id = Column(Integer, primary_key=True)
@@ -29,14 +29,14 @@ class BotUser   (Base):
     # Отношения
     favorites = relationship('Favorite', back_populates='bot_user')
     blacklist = relationship('Blacklist', back_populates='bot_user')
-    search = relationship('Search', back_populates='bot_user', uselist=False)
+    search_preferences = relationship('SearchPreferences', back_populates='bot_user', uselist=False)
 
 class UserState(Base):
     __tablename__ = 'user_states'
 
     id = Column(Integer, primary_key=True)
     vk_id = Column(Integer, unique=True, nullable=False)
-    current_state = Column(JSON, default=dict)
+    current_state = Column(String(50), default='start')
     updated_at = Column(DateTime, default=func.now())
 
 class Profile(Base):

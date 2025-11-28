@@ -1,7 +1,6 @@
-
 from typing import Optional, Dict, Any
 from src.database.base import Session
-from src.database.crud import get_user_state, create_or_update_user_state, update_user_state_data
+from src.database.crud import get_user_state, create_or_update_user_state
 
 class StateManager:
     def __init__(self) -> None:
@@ -18,23 +17,6 @@ class StateManager:
             user_state = get_user_state(session, vk_id)
             return user_state.current_state if user_state else None
 
-    def set_data(self, vk_id: int, **kwargs):
-        # Установка данных состояния
-        with Session() as session:
-            user_state = get_user_state(session, vk_id)
-            current_data = user_state.state_data if user_state else {}
-            current_data.update(kwargs)
-            state = user_state.current_state if user_state else 'start'
-            create_or_update_user_state(session, vk_id, state, current_data)
-
-    def get_data(self, vk_id: int, key: str = None) -> Any:
-        # Получение данных состояния
-        with Session() as session:
-            user_state = get_user_state(session, vk_id)
-            if user_state and user_state.state_data:
-                return user_state.state_data.get(key) if key else user_state.state_data
-            return None if key else {}
-
     def update_data(self, vk_id: int, **kwargs) -> Dict:
         # Обновление данных состояния
         with Session() as session:
@@ -47,6 +29,14 @@ class StateManager:
             else:
                 create_or_update_user_state(session, vk_id, 'start', kwargs)
                 return kwargs
+
+    def get_data(self, vk_id: int, key: str = None) -> Any:
+        # Получение данных состояния
+        with Session() as session:
+            user_state = get_user_state(session, vk_id)
+            if user_state and user_state.state_data:
+                return user_state.state_data.get(key) if key else user_state.state_data
+            return None if key else {}
 
     def clear_state(self, vk_id: int):
         # Очистка состояния пользователя
