@@ -1,9 +1,14 @@
 from vk_api import VkApi
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
+from src.database.statemanager import StateManager
 
-from src.vk_bot.vk_queries import create_user, user_exists
-from src.vk_bot.vk_state_maneger import StateManager, state_handler
+
+def state_handler(state_name):
+    def decorator(func):
+        func.state_name = state_name
+        return func
+    return decorator
 
 class VkBot:
     
@@ -11,10 +16,8 @@ class VkBot:
         self.__token = token
         self.vk_session = VkApi(token=self.__token)
         self.longpoll = VkLongPoll(self.vk_session)
-        self.vk = self.vk_session.get_api()
-    
-        self.user_states = {}
-        self.state_manager = StateManager(self)
+        self.vk = self.vk_session.get_api()    
+        self.state_manager = StateManager()
 
     def send_msg(self, user_id: int, message: str):
         self.vk.messages.send(
@@ -22,29 +25,25 @@ class VkBot:
             message=message,
             random_id=get_random_id()
         )
-    @state_handler("start")
-    def handle_start(self, user_id: int, text: str) -> None:
-        if text in ["начать", "привет"]:
-            if user_exists(user_id):
-                self.send_msg(user_id, "С возвращением! Вы уже зарегистрированы.")
-                self.user_states[user_id] = "main"
-            else:
-                self.send_msg(user_id, "Привет! Давай зарегистрируем тебя в системе.")
-                self.user_states[user_id] = "registration"
-        else:
-            self.send_msg(user_id, "Напишите 'Начать' или 'Привет' для начала работы")
-    
-    @state_handler("main")
-    def handle_main(self, user_id: int, text: str):
-        self.send_msg(user_id, "Вы в главном меню")
-    
-    @state_handler("registration") 
-    def handle_registration(self, user_id: int, text: str):
-        self.send_msg(user_id, "Регистрация...")
+
+    def handle_message(self, user_id: int, text: str):
+        current_state = self.state_manager.get_state(user_id)
+        # Запускаем состояние, если есть
+        if current_state:
+            for attr in dir(self):
+                handler = getattr(self, attr)
+                if hasattr(handler, 'state_name') and handler.state_name == current_state:
+                    handler(user_id, text)
         
-    def handle_message(self, user_id: int, text: str) -> None:
-        text = text.lower()
-        self.state_manager.handle_state(user_id, text)
+        if text.lower() in ['начать', 'старт']:
+            self.send_msg(user_id, 'Здравствуйте! Начинаем.')
+            # Показываем клавиатуру
+        elif text.lower() in ['помощь', 'help']:
+            ...
+            # Показать информацию
+            # Показываем клавиатуру
+        else:
+            self.send_msg(user_id, "Напиши 'начать или старт'")
     
     def run(self) -> None:
         print("Бот запущен")
