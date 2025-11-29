@@ -19,8 +19,8 @@ class User(BaseModel):
     __tablename__ = "users"
 
     vk_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
-    firstname: Mapped[str] = mapped_column(String(50), nullable=False)
-    lastname: Mapped[str] = mapped_column(String(50), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(50), nullable=False)
     user_vk_link: Mapped[str] = mapped_column(String, nullable=False)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
     gender: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -30,7 +30,7 @@ class User(BaseModel):
 
     __table_args__ = (
         CheckConstraint(
-            gender.in_(['male', 'female']), 
+            gender.in_(['Мужской', 'Женский']), 
             name='valid_gender'
         ),
     )
@@ -108,7 +108,7 @@ class Blacklist(BaseModel):
 class UserState(Base):
     __tablename__ = "user_states"
     
-    user_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     state: Mapped[str] = mapped_column(String(100), nullable=True)
     data: Mapped[str] = mapped_column(Text, default="{}")
     
