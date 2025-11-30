@@ -1,9 +1,7 @@
 import logging
-
 from src.config import settings
-from src.database.base import create_tables, drop_tables
 from src.vk_bot.vk_bot import VkBot
-
+from src.database.base import db_manager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,13 +11,8 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("Запуск программы")
-    
-    logger.info("Сбрасываем таблицы БД")
-    drop_tables()
-    
-    logger.info("Создаём таблицы БД")
-    if not create_tables():
-        logger.error("Не удалось создать таблицы")
+    db_manager.drop_tables()    
+    if not db_manager.create_tables():
         return
     
     logger.info("Инициализация бота")
