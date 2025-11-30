@@ -25,7 +25,7 @@ class VkBot:
         "last_name": "фамилию",
         "vk_link": "ссылку на профиль",
         "age": "возраст",
-        "gender": "пол",
+        "sex": "пол",
         "city": "город"
     }
     
@@ -76,17 +76,18 @@ class VkBot:
                 "first_name": user_info.first_name,
                 "last_name": user_info.last_name,
                 "age": user_info.age,
-                "gender": user_info.gender,
+                "sex": user_info.sex,
                 "city": user_info.city,
                 "vk_link": user_info.user_vk_link,
-                "vk_id": user_info.vk_user_id
+                "vk_id": user_info.vk_id
             }
         else:
             # если пользователя нет в базе, берём данные из StateManager
             user_data = self.state_manager.get_data(user_id)
 
         lines = []
-        for key in ["first_name", "last_name", "age", "gender", "city", "vk_link"]:
+        
+        for key in ["first_name", "last_name", "age", "sex", "city", "vk_link"]:
             field_name = self.FIELD_NAMES_RU.get(key, key)
             value = user_data.get(key) if user_data else None
             if value is None or (isinstance(value, str) and not value.strip()):
@@ -99,7 +100,7 @@ class VkBot:
     @state_handler("fill_missing_fields")
     def handle_fill_missing_fields(self, user_id: int, text: str):
         user_data = self.state_manager.get_data(user_id) or {}
-        required_fields = ["first_name", "last_name", "vk_link", "age", "gender", "city"]
+        required_fields = ["first_name", "last_name", "vk_link", "age", "sex", "city"]
 
         # Заполняем первое пустое поле
         for field in required_fields:
@@ -118,12 +119,12 @@ class VkBot:
       
         # Сохраняем пользователя в БД
         save_user_from_vk(
-            vk_user_id=int(user_data["vk_id"]),
+            vk_id=int(user_data["vk_id"]),
             first_name=user_data["first_name"],
             last_name=user_data["last_name"],
             vk_link=user_data["vk_link"],
             age=int(user_data["age"]),
-            gender=user_data["gender"],
+            sex=user_data["sex"],
             city=user_data["city"]
         )
         self.show_user_profile(user_id)
@@ -133,11 +134,12 @@ class VkBot:
         
     def handle_message(self, user_id: int, text: str):
         logger.info(f"Новое сообщение от {user_id}: {text}")    
+
         text_lower = text.lower()
 
         if text_lower in ["/start", "старт", "начать"]:
             # Если пользователь уже есть в базе
-            user_in_db = get_user_by_vk_id(user_id)
+            user_in_db = get_user_by_vk_id(user_id)            
             if user_in_db:
                 self.send_msg(user_id, "Вы уже начали работу с ботом. Вот ваша анкета:", keyboard=self.keyboard)
                 self.show_user_profile(user_id)
@@ -159,7 +161,7 @@ class VkBot:
             
             # Проверка недостающих полей
             user_data = {**vk_info, **(self.state_manager.get_data(user_id) or {})}
-            required_fields = ["first_name", "last_name", "vk_link", "age", "gender", "city"]
+            required_fields = ["first_name", "last_name", "vk_link", "age", "sex", "city"]
             missing_fields = [f for f in required_fields if not user_data.get(f)]
             if missing_fields:
                 self.state_manager.set_data(user_id, **user_data)
@@ -168,12 +170,12 @@ class VkBot:
                 self.send_msg(user_id, f"Пожалуйста, укажите {missing_fields_text}:")
             else:
                 save_user_from_vk(
-                    vk_user_id=int(user_data["vk_id"]),
+                    vk_id=int(user_data["vk_id"]),
                     first_name=user_data["first_name"],
                     last_name=user_data["last_name"],
                     vk_link=user_data["vk_link"],
                     age=int(user_data["age"]),
-                    gender=user_data["gender"],
+                    sex=user_data["sex"],
                     city=user_data["city"]
                 )
                 self.send_msg(user_id, "Данные профиля сохранены ✅", keyboard=self.keyboard)
