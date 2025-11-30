@@ -51,3 +51,12 @@ class  DatabaseManager:
         return self.Session()
     
 db_manager = DatabaseManager()
+def create_tables():
+    return db_manager.create_tables()
+    
+def drop_tables():
+    return db_manager.drop_tables()
+
+def Session():
+    # Получение сессии для работы с БД
+    return db_manager.get_session()
