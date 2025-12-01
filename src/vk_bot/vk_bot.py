@@ -140,7 +140,7 @@ class VkBot:
 
         if text_lower in ["/start", "старт", "начать"]:
             # Если пользователь уже есть в базе
-            user_in_db = get_user_by_vk_id(user_id)
+            user_in_db = get_user_by_vk_id(user_id)            
             if user_in_db:
                 self.send_msg(user_id, "Вы уже начали работу с ботом. Вот ваша анкета:", keyboard=self.keyboard)
                 self.show_user_profile(user_id)
