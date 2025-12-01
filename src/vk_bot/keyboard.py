@@ -1,4 +1,5 @@
-from vk_api.keyboard  import VkKeyboard, VkKeyboardColor
+# keyboard.py
+from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 
 class KeyboardManager:
@@ -24,11 +25,20 @@ class KeyboardManager:
     def create_dating_keyboard():
         """Создание клавиатуры для режима просмотра анкет"""
         keyboard = VkKeyboard(one_time=False)
+
+        # Первая строка
         keyboard.add_button('Нравится', color=VkKeyboardColor.POSITIVE)
         keyboard.add_button('Не нравится', color=VkKeyboardColor.NEGATIVE)
+
+        # Вторая строка
         keyboard.add_line()
+        keyboard.add_button('Добавить в избранное', color=VkKeyboardColor.PRIMARY)
         keyboard.add_button('Добавить в ЧС', color=VkKeyboardColor.SECONDARY)
+
+        # Третья строка
+        keyboard.add_line()
         keyboard.add_button('В главное меню', color=VkKeyboardColor.PRIMARY)
+
         return keyboard
 
     @staticmethod
