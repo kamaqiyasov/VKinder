@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     VK_USER_TOKEN: str = "your_user_token_here"    # Для поиска пользователей
 
     @property
+    def VK_TOKEN(self) -> str:
+        return self.VK_GROUP_TOKEN if self.VK_GROUP_TOKEN else self.VK_USER_TOKEN
+
+    @property
     def DATABASE_URL_psycopg(self) -> str:
         return f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
