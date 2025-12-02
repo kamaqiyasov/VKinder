@@ -52,6 +52,48 @@ def delete_bot_user(db: Session, bot_user_id: int) -> bool:
         return True
     return False
 
+def save_user_from_vk(db: Session, vk_id: int, first_name: str, last_name: str,
+                      vk_link: str, age: int, sex: str, city: str) -> BotUser:
+    """
+    Сохранение пользователя из VK
+    """
+    # Преобразуем пол из строки в число
+    sex_map = {
+        "Мужской": 2,
+        "мужской": 2,
+        "male": 2,
+        "m": 2,
+        "2": 2,
+        "Женский": 1,
+        "женский": 1,
+        "female": 1,
+        "f": 1,
+        "1": 1
+    }
+
+    sex_int = None
+    if sex:
+        if isinstance(sex, int):
+            sex_int = sex
+        elif isinstance(sex, str):
+            # Пробуем преобразовать строку в число
+            try:
+                sex_int = int(sex)
+            except ValueError:
+                # Ищем в словаре
+                sex_int = sex_map.get(sex.lower())
+
+    # Создаем или обновляем пользователя
+    return create_or_update_bot_user(
+        db=db,
+        vk_id=vk_id,
+        first_name=first_name,
+        last_name=last_name,
+        age=age,
+        sex=sex_int,
+        city=city
+    )
+
 # ==================== Операции с состояниями ====================
 
 def get_user_state(db: Session, vk_id: int) -> Optional[UserState]:
@@ -172,7 +214,7 @@ def find_profiles_by_criteria(db: Session, city: str = None, age_min: int = None
 
 def add_photos_to_profile(db: Session, profile_id: int, photos: List[Dict]) -> List[Photo]:
     # Добавить фотографии к профилю
-    db.query(Photo).filter(Photo.profile_id == profile_id).delete() # Удаляем старые фотографи
+    db.query(Photo).filter(Photo.profile_id == profile_id).delete() # Удаляем старые фотографии
 
     # Добавляем новые
     photo_objects = []
@@ -320,3 +362,74 @@ def delete_search_preferences(db: Session, bot_user_id: int) -> bool:
         db.commit()
         return True
     return False
+
+# ==================== Операции с поиском ====================
+
+def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> List[Profile]:
+    # Сохранить результаты в базу данных
+    saved_profiles = []
+    for user_data in users:
+        profile = create_or_update_profile(
+            db=db,
+            vk_id=user_data['vk_id'],
+            first_name=user_data['first_name'],
+            last_name=user_data['last_name'],
+            profile_url=user_data.get('profile_url'),
+            age=user_data.get('age'),
+            sex=user_data.get('sex'),
+            city=user_data.get('city')
+        )
+        saved_profiles.append(profile)
+    return saved_profiles
+
+def get_next_search_profile(db: Session, bot_user_id: int) -> Optional[Profile]:
+    # Получить следующий профиль для поиска
+    bot_user = get_bot_user_by_vk_id(db, bot_user_id)
+    if not bot_user:
+        return None
+
+    # Получаем предпочтения поиска
+    preferences = get_search_preferences(db, bot_user.id)
+    if not preferences:
+        return None
+
+    # Ищем профили, которые еще не просмотрены и не в избранном
+    all_profiles = db.query(Profile).filter(
+        Profile.city == preferences.search_city,
+        Profile.age >= preferences.search_age_min,
+        Profile.age <= preferences.search_age_max,
+        Profile.sex == preferences.search_sex
+    ).all()
+
+    # Исключаем уже просмотренные (в черном списке)
+    blacklisted_ids = [bl.profile_id for bl in bot_user.blacklist]
+    favorites_ids = [fav.profile_id for fav in bot_user.favorites]
+
+    excluded_ids = set(blacklisted_ids + favorites_ids)
+
+    for profile in all_profiles:
+        if profile.id not in excluded_ids:
+            return profile
+
+    return None
+
+def add_to_viewed(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
+    # Добавить профиль в просмотренные (используем для этого черный список)
+    # Проверяем, не добавлен ли уже
+    existing = db.query(Blacklist).filter(
+        Blacklist.bot_user_id == bot_user_id,
+        Blacklist.profile_id == profile_id
+    ).first()
+
+    if existing:
+        return existing
+
+    # Добавляем в черный список как просмотренный
+    blacklist_entry = Blacklist(
+        bot_user_id=bot_user_id,
+        profile_id=profile_id
+    )
+    db.add(blacklist_entry)
+    db.commit()
+    db.refresh(blacklist_entry)
+    return blacklist_entry

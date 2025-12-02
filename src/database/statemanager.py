@@ -30,6 +30,18 @@ class StateManager:
                 create_or_update_user_state(session, vk_id, 'start', kwargs)
                 return kwargs
 
+    def set_data(self, vk_id: int, **kwargs):
+        # Установка данных состояния (полная замена)
+        with Session() as session:
+            user_state = get_user_state(session, vk_id)
+            current_state = user_state.current_state if user_state else 'start'
+
+            data_to_save = kwargs.copy()
+            if 'vk_id' in data_to_save:
+                del data_to_save['vk_id']
+
+            create_or_update_user_state(session, vk_id, current_state, data_to_save)
+
     def get_data(self, vk_id: int, key: str = None) -> Any:
         # Получение данных состояния
         with Session() as session:
