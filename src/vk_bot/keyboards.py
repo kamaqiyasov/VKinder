@@ -29,7 +29,7 @@ class VkBotKeyboards:
         keyboard.add_button('❤️ В избранное', color=VkKeyboardColor.POSITIVE)
         keyboard.add_button('➡️ Далее', color=VkKeyboardColor.PRIMARY)
         keyboard.add_line()
-        keyboard.add_button('👎 Не нравится', color=VkKeyboardColor.NEGATIVE)
+        keyboard.add_button('👎 В черный список', color=VkKeyboardColor.NEGATIVE)
         keyboard.add_button('🏠 В меню', color=VkKeyboardColor.SECONDARY)
         return keyboard
 
@@ -37,9 +37,9 @@ class VkBotKeyboards:
     def create_settings_keyboard():
         # Клавиатура настроек
         keyboard = VkKeyboard(one_time=False)
-        keyboard.add_button('Изменить пол', color=VkKeyboardColor.PRIMARY)
-        keyboard.add_button('Изменить возраст', color=VkKeyboardColor.PRIMARY)
+        keyboard.add_button("Изменить возраст", color=VkKeyboardColor.PRIMARY)
+        keyboard.add_button("Изменить город", color=VkKeyboardColor.PRIMARY)
         keyboard.add_line()
-        keyboard.add_button('Изменить город', color=VkKeyboardColor.PRIMARY)
-        keyboard.add_button('Назад', color=VkKeyboardColor.NEGATIVE)
+        keyboard.add_button("Изменить пол", color=VkKeyboardColor.PRIMARY)
+        keyboard.add_button("Назад", color=VkKeyboardColor.NEGATIVE)
         return keyboard

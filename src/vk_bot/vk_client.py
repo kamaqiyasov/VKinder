@@ -31,7 +31,7 @@ class VKUser:
                 b = datetime.strptime(user['bdate'], "%d.%m.%Y")
                 age = int((datetime.now() - b).days / 365.25)
 
-            sex = None
+            sex_int = user.get('sex')
             if user.get('sex') == 1:
                 sex = 'Женский'
             elif user.get('sex') == 2:
@@ -44,7 +44,7 @@ class VKUser:
                 'first_name': user.get('first_name'),
                 'last_name': user.get('last_name'),
                 'age': age,
-                'sex': sex,
+                'sex': sex_int,
                 'city': city,
                 'vk_link': f"https://vk.com/id{user['id']}"
             }
