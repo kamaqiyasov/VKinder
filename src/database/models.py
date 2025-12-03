@@ -14,7 +14,7 @@ class BotUser(Base):
     first_name = Column(String(100))
     last_name = Column(String(100))
     age = Column(Integer)
-    sex = Column(Integer)
+    sex = Column(Integer)  # 1 - жен, 2 - муж
     city = Column(String(100))
     user_vk_link = Column(String, nullable=False)
     
@@ -22,6 +22,47 @@ class BotUser(Base):
     favorites = relationship('Favorite', back_populates='bot_user')
     blacklist = relationship('Blacklist', back_populates='bot_user')
     search_preferences = relationship('SearchPreferences', back_populates='bot_user', uselist=False)
+    
+    def is_profile_complete(self) -> bool:
+        """
+        Проверяет, заполнен ли профиль пользователя полностью.
+        Обязательные поля: first_name, age, sex, city
+        """
+        # Проверяем, что все обязательные поля не None
+        if self.first_name is None or (isinstance(self.first_name, str) and not self.first_name.strip()):
+            return False
+            
+        if self.age is None or self.age <= 0 or self.age > 120:
+            return False
+            
+        if self.sex is None or self.sex not in [1, 2]:  # 1 - жен, 2 - муж
+            return False
+            
+        if self.city is None or (isinstance(self.city, str) and not self.city.strip()):
+            return False
+            
+        return True
+    
+    def get_profile_summary(self) -> str:
+        """Возвращает текстовое описание профиля"""
+        if not self.is_profile_complete():
+            return "Профиль не заполнен"
+            
+        sex_str = "женский" if self.sex == 1 else "мужской"
+        last_name = f" {self.last_name}" if self.last_name else ""
+        return (f"👤 {self.first_name}{last_name}\n"
+                f"🎂 Возраст: {self.age}\n"
+                f"🚻 Пол: {sex_str}\n"
+                f"📍 Город: {self.city}")
+    
+    def get_sex_str(self) -> str:
+        """Возвращает строковое представление пола"""
+        if self.sex == 1:
+            return "женский"
+        elif self.sex == 2:
+            return "мужской"
+        return "не указан"
+    
     
 class UserState(Base):
     __tablename__ = "user_states"

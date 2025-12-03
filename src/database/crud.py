@@ -6,7 +6,7 @@ def get_user_by_vk_id(vk_id: int) -> BotUser | None:
     with Session() as session:
         return session.query(BotUser).filter_by(vk_id=vk_id).first()
 
-def save_user_from_vk(vk_id: int, first_name: str, last_name: str, vk_link: str, age: int, sex: str, city: str) -> BotUser:
+def save_user_from_vk(vk_id: int, first_name: str = None, last_name: str = None, age: int = None, sex: int = None, city: str = None) -> BotUser:
     with Session() as session:
         user = session.query(BotUser).filter_by(vk_id=vk_id).first()
         if user:
@@ -14,12 +14,12 @@ def save_user_from_vk(vk_id: int, first_name: str, last_name: str, vk_link: str,
             user.last_name = last_name
             user.user_vk_link = vk_link
             user.age = age
-            user.sex = sex
+            user.sex = gender
             user.city = city
         else:
-            if sex == 'Женский':
+            if gender == 'Женский':
                 sex: int = 1
-            elif sex == 'Мужской':
+            elif gender == 'Мужской':
                 sex: int = 2
             
             user = BotUser(

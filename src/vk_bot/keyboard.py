@@ -1,4 +1,4 @@
-# keyboard.py
+# src/vk_bot/keyboard.py
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 
@@ -46,10 +46,11 @@ class KeyboardManager:
         """Получение клавиатуры по состоянию"""
         keyboards = {
             'start': KeyboardManager.create_start_keyboard,
+            'awaiting_start': KeyboardManager.create_start_keyboard,
             'main': KeyboardManager.create_main_keyboard,
             'dating': KeyboardManager.create_dating_keyboard
         }
 
         if state in keyboards:
             return keyboards[state]()
-        return KeyboardManager.create_start_keyboard()
+        return None  # Для состояний без клавиатуры (например, registration)

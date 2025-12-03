@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("Запуск программы")
-    drop_tables()    
+    drop_tables()
     if not create_tables():
         return
     
