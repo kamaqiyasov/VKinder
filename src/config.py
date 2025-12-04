@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     DB_PASS: str = "password"
     DB_NAME: str = "vkinder"
     VK_GROUP_TOKEN: str = "your_group_token_here"  # Для работы бота
-    VK_USER_TOKEN: str = "your_user_token_here"    # Для поиска пользователей
+    VK_USER_TOKEN: str = "your_user_token_here" # Для поиска пользователей
+    DEBUG: bool = False
 
     @property
     def DATABASE_URL_psycopg(self) -> str:
