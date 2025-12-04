@@ -745,13 +745,6 @@ class VkBot:
             logger.info("=== ГИБКИЙ ПОИСК ===")
             logger.info(f"Параметры: город='{search_city}', возраст={search_age_min}-{search_age_max}, пол={search_sex}")
 
-            # Определяем параметры поиска
-            search_city = user.city
-            search_age_min = 18
-            search_age_max = 45  # Расширим возраст
-
-
-
             # Пробуем разные стратегии поиска (от более узкого к более широкому)
             search_strategies = [
                 # Стратегия 1: Точный поиск по городу и полу
@@ -834,19 +827,19 @@ class VkBot:
             # Тест группового токена (бот)
             logger.info("Тестируем групповой токен...")
             group_info = self.vk.groups.getById()
-            logger.info(f"✓ Групповой токен работает. Группа: {group_info[0]['name']}")
+            logger.info(f"Групповой токен работает. Группа: {group_info[0]['name']}")
 
             # Тест пользовательского токена (поиск) - используем простой запрос
             logger.info("Тестируем пользовательский токен...")
             test_response = self.vk_searcher._make_request('users.get', {'user_ids': 1})
 
             if test_response:
-                logger.info(f"✓ Пользовательский токен работает. Тестовый пользователь получен")
+                logger.info(f"Пользовательский токен работает. Тестовый пользователь получен")
             else:
-                logger.error("✗ Пользовательский токен не возвращает данные. Возможно, недостаточно прав или токен невалиден.")
+                logger.error("Пользовательский токен не возвращает данные. Возможно, недостаточно прав или токен невалиден.")
 
         except Exception as e:
-            logger.error(f"✗ Ошибка подключения к VK API: {e}")
+            logger.error(f" Ошибка подключения к VK API: {e}")
             import traceback
             logger.error(f"Детали ошибки: {traceback.format_exc()}")
 
