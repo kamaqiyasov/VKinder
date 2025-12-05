@@ -102,3 +102,18 @@ class SearchPreferences(Base):
 
     # Отношения
     bot_user = relationship("BotUser", back_populates="search_preferences")
+
+class ViewedProfiles(Base):
+    __tablename__ = 'viewed_profiles'
+
+    id = Column(Integer, primary_key=True)
+    bot_user_id = Column(Integer, ForeignKey('bot_users.id'))
+    profile_id = Column(Integer, ForeignKey('profiles.id'))
+    viewed_at = Column(DateTime, default=func.now())
+
+    # Отношения
+    bot_user = relationship("BotUser",)
+    profile = relationship("Profile")
+
+    # Уникальность
+    __table_args__ = (UniqueConstraint('bot_user_id', 'profile_id', name='uq_viewed_profiles_user_profile'),)
