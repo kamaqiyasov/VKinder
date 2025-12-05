@@ -53,35 +53,29 @@ def delete_bot_user(db: Session, bot_user_id: int) -> bool:
     return False
 
 def save_user_from_vk(db: Session, vk_id: int, first_name: str, last_name: str,
-                      vk_link: str, age: int, sex: str, city: str) -> BotUser:
-    """
-    Сохранение пользователя из VK
-    """
-    # Преобразуем пол из строки в число
-    sex_map = {
-        "Мужской": 2,
-        "мужской": 2,
-        "male": 2,
-        "m": 2,
-        "2": 2,
-        "Женский": 1,
-        "женский": 1,
-        "female": 1,
-        "f": 1,
-        "1": 1
-    }
-
+vk_link: str, age: int, sex: str, city: str) -> BotUser:
+    # Сохраняем пользователя из VK
     sex_int = None
-    if sex:
+
+    if sex is not None:
         if isinstance(sex, int):
             sex_int = sex
         elif isinstance(sex, str):
-            # Пробуем преобразовать строку в число
-            try:
-                sex_int = int(sex)
-            except ValueError:
-                # Ищем в словаре
-                sex_int = sex_map.get(sex.lower())
+            sex_lower = sex.lower()
+            # Мужской пол
+            if sex_lower in ["мужской", "male", "m", "2", "муж", "м"]:
+                sex_int = 2
+            # Женский пол
+            elif sex_lower in ["женский", "female", "f", "1", "жен", "ж"]:
+                sex_int = 1
+            else:
+                # Пытаемся преобразовать в число
+                try:
+                    sex_int = int(sex)
+                    if sex_int not in [1, 2]:
+                        sex_int = None
+                except ValueError:
+                    sex_int = None
 
     # Создаем или обновляем пользователя
     return create_or_update_bot_user(
@@ -369,17 +363,33 @@ def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> Lis
     # Сохранить результаты в базу данных
     saved_profiles = []
     for user_data in users:
-        profile = create_or_update_profile(
-            db=db,
-            vk_id=user_data['vk_id'],
-            first_name=user_data['first_name'],
-            last_name=user_data['last_name'],
-            profile_url=user_data.get('profile_url'),
-            age=user_data.get('age'),
-            sex=user_data.get('sex'),
-            city=user_data.get('city')
-        )
-        saved_profiles.append(profile)
+        # Проверяем, существует ли уже профиль с таким vk_id
+        existing_profile = get_profile_by_vk_id(db, user_data['vk_id'])
+
+        if existing_profile:
+            # Если профиль уже существует, обновляем его
+            existing_profile.first_name = user_data.get('first_name', existing_profile.first_name)
+            existing_profile.last_name = user_data.get('last_name', existing_profile.last_name)
+            existing_profile.profile_url = user_data.get('profile_url', existing_profile.profile_url)
+            existing_profile.age = user_data.get('age', existing_profile.age)
+            existing_profile.sex = user_data.get('sex', existing_profile.sex)
+            existing_profile.city = user_data.get('city', existing_profile.city)
+            saved_profiles.append(existing_profile)
+        else:
+            # Создаем новый профиль
+            profile = create_or_update_profile(
+                db=db,
+                vk_id=user_data['vk_id'],
+                first_name=user_data['first_name'],
+                last_name=user_data['last_name'],
+                profile_url=user_data.get('profile_url'),
+                age=user_data.get('age'),
+                sex=user_data.get('sex'),
+                city=user_data.get('city')
+            )
+            saved_profiles.append(profile)
+
+    db.commit()
     return saved_profiles
 
 def get_next_search_profile(db: Session, bot_user_id: int) -> Optional[Profile]:
@@ -390,26 +400,37 @@ def get_next_search_profile(db: Session, bot_user_id: int) -> Optional[Profile]:
 
     # Получаем предпочтения поиска
     preferences = get_search_preferences(db, bot_user.id)
-    if not preferences:
-        return None
 
-    # Ищем профили, которые еще не просмотрены и не в избранном
-    all_profiles = db.query(Profile).filter(
-        Profile.city == preferences.search_city,
-        Profile.age >= preferences.search_age_min,
-        Profile.age <= preferences.search_age_max,
-        Profile.sex == preferences.search_sex
-    ).all()
+    # Начинаем строить запрос
+    query = db.query(Profile)
 
-    # Исключаем уже просмотренные (в черном списке)
+    # Если предпочтения есть, то применяем фильтры
+    if preferences:
+        if preferences.search_city:
+            query = query.filter(Profile.city == preferences.search_city)
+        if preferences.search_age_min:
+            query = query.filter(Profile.age >= preferences.search_age_min)
+        if preferences.search_age_max:
+            query = query.filter(Profile.age <= preferences.search_age_max)
+        if preferences.search_sex:
+            query = query.filter(Profile.sex == preferences.search_sex)
+
+    # Получаем все профили, которые соответствуют запросу
+    all_profiles = query.all()
+
+    # Исключаем уже просмотренные (в черном списке) и избранное
     blacklisted_ids = [bl.profile_id for bl in bot_user.blacklist]
     favorites_ids = [fav.profile_id for fav in bot_user.favorites]
 
     excluded_ids = set(blacklisted_ids + favorites_ids)
 
-    for profile in all_profiles:
-        if profile.id not in excluded_ids:
-            return profile
+    # Фильтруем профили, исключая уже просмотренные и избранные
+    available_profiles = [profile for profile in all_profiles if profile.id not in excluded_ids]
+
+    # Если есть доступные профили, возвращаем случайный
+    if available_profiles:
+        import random
+        return random.choice(available_profiles)
 
     return None
 
@@ -433,3 +454,43 @@ def add_to_viewed(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
     db.commit()
     db.refresh(blacklist_entry)
     return blacklist_entry
+
+# ==================== Операции с лайками фотографий ====================
+
+"""def add_photo_like(db: Session, bot_user_id: int, profile_id: int, photo_url: str) -> PhotoLike:
+    # Добавить лайк фото
+    like = PhotoLike(
+        bot_user_id=bot_user_id,
+        profile_id=profile_id,
+        photo_url=photo_url
+    )
+    db.add(like)
+    db.commit()
+    db.refresh(like)
+    return like
+
+def remove_photo_like(db: Session, bot_user_id: int, photo_url: str) -> bool:
+    # Удалить лайк фото
+    like = db.query(PhotoLike).filter(
+        PhotoLike.bot_user_id == bot_user_id,
+        PhotoLike.photo_url == photo_url
+    ).first()
+
+    if like:
+        db.delete(like)
+        db.commit()
+        return True
+    return False
+
+def get_user_photo_likes(db: Session, bot_user_id: int) -> List[PhotoLike]:
+    # Получить все лайки фото пользователя
+    return db.query(PhotoLike).filter(
+        PhotoLike.bot_user_id == bot_user_id
+    ).all()
+
+def is_photo_liked(db: Session, bot_user_id: int, photo_url: str) -> bool:
+    # Проверить, лайкнута ли фото
+    return db.query(PhotoLike).filter(
+        PhotoLike.bot_user_id == bot_user_id,
+        PhotoLike.photo_url == photo_url
+    ).first() is not None"""

@@ -99,6 +99,29 @@ class VkBot:
                 handlers[attr.state_name] = attr
         return handlers
 
+    def handle_start_command(self, user_id: int):
+        """Обработка команды /start"""
+        with Session() as session:
+            # Проверяем, есть ли пользователь в базе
+            user = get_bot_user_by_vk_id(session, user_id)
+
+            if user:
+                # Пользователь уже есть, показываем его профиль
+                self.show_user_profile(user_id)
+                self.send_msg(user_id, "С возвращением! Вот ваш профиль:", keyboard=self.keyboard)
+            else:
+                # Пользователя нет, начинаем заполнение профиля
+                self.send_msg(user_id,
+                              "👋 Привет! Я бот для знакомств VKinder.\n"
+                              "Для начала работы мне нужно заполнить ваш профиль.\n"
+                              "Пожалуйста, ответьте на несколько вопросов:")
+
+                # Инициализируем состояние
+                self.state_manager.set_state(user_id, "fill_missing_fields")
+
+                # Запрашиваем первое поле
+                self.send_msg(user_id, "Как вас зовут? (Введите имя):")
+
     def send_msg(self, user_id: int, message: str, keyboard: Optional[VkKeyboard] = None,
                  attachment: Optional[str] = None):
         params = {
@@ -137,29 +160,23 @@ class VkBot:
         return "Не указан"
 
     def show_user_profile(self, user_id: int):
-        # Показываем профиль пользователя
+    # Показываем профиль пользователя
         with Session() as session:
             user = get_bot_user_by_vk_id(session, user_id)
             if not user:
                 self.send_msg(user_id, "Профиль не найден. Начните с команды /start")
                 return
 
-            # Проверяем, какие атрибуты есть у пользователя
-            first_name = getattr(user, 'first_name', 'Не указано')
-            last_name = getattr(user, 'last_name', 'Не указано')
-            age = getattr(user, 'age', 'Не указано')
-            city = getattr(user, 'city', 'Не указано')
+            # Упрощаем получение данных
+            first_name = user.first_name or 'Не указано'
+            last_name = user.last_name or 'Не указано'
+            age = str(user.age) if user.age else 'Не указано'
+            city = user.city or 'Не указано'
 
-            # Проверяем возможные названия поля для ссылки
-            vk_link = getattr(user, 'vk_link', None)
-            if not vk_link:
-                vk_link = getattr(user, 'link', None)
-            if not vk_link:
-                vk_link = getattr(user, 'profile_url', None)
-            if not vk_link:
-                vk_link = 'Не указано'
+            # Формируем ссылку на профиль ВК
+            vk_link = f"https://vk.com/id{user.vk_id}"
 
-            sex_display = self._format_sex(getattr(user, 'sex', None))
+            sex_display = self._format_sex(user.sex)
 
             message = (
                 f"👤 Ваш профиль:\n"
@@ -296,69 +313,117 @@ class VkBot:
 
     @state_handler("fill_missing_fields")
     def handle_fill_missing_fields(self, user_id: int, text: str):
+        # Получаем текущие данные состояния
         user_data = self.state_manager.get_data(user_id) or {}
+
+        # Если данных нет, инициализируем основные поля
+        if not user_data:
+            user_data = {
+                'first_name': None,
+                'last_name': None,
+                'vk_link': None,
+                'age': None,
+                'sex': None,
+                'city': None
+            }
+            # Сохраняем инициализированные данные
+            self.state_manager.set_data(user_id, **user_data)
+
         required_fields = ["first_name", "last_name", "vk_link", "age", "sex", "city"]
 
         # Определяем, какое поле заполняем
         current_field = None
         for field in required_fields:
-            if not user_data.get(field):
+            if user_data.get(field) is None:  # Используем None вместо проверки на пустую строку
                 current_field = field
                 break
 
+        if current_field is None:
+            # Все поля заполнены, сохраняем пользователя
+            with Session() as session:
+                save_user_from_vk(
+                    session,
+                    vk_id=user_id,  # используем user_id как vk_id
+                    first_name=user_data["first_name"],
+                    last_name=user_data["last_name"],
+                    vk_link=user_data["vk_link"],
+                    age=int(user_data["age"]),
+                    sex=user_data["sex"],
+                    city=user_data["city"]
+                )
+            self.show_user_profile(user_id)
+            self.state_manager.clear_state(user_id)
+            self.send_msg(user_id, "Данные профиля сохранены", keyboard=self.keyboard)
+            logger.info(f"Пользователь {user_id} сохранён: {user_data}")
+            return
+
+        # Обработка ввода для текущего поля
+        text = text.strip()
+
         if current_field == 'sex':
             # Преобразуем текстовый ввод в числовое значение
-            text_lower = text.strip().lower()
+            text_lower = text.lower()
             sex_mapping = {
-                "женский": 1,
-                "ж": 1,
-                "female": 1,
-                "f": 1,
-                "1": 1,
-                "мужской": 2,
-                "м": 2,
-                "male": 2,
-                "m": 2,
-                "2": 2
+                "женский": 1, "ж": 1, "female": 1, "f": 1, "1": 1,
+                "мужской": 2, "м": 2, "male": 2, "m": 2, "2": 2
             }
             sex_value = sex_mapping.get(text_lower)
             if sex_value is None:
                 self.send_msg(user_id, "Пожалуйста, укажите пол правильно: 'женский' или 'мужской'")
                 return
             user_data[current_field] = sex_value
+        elif current_field == 'age':
+            try:
+                age = int(text)
+                if age < 14 or age > 100:
+                    self.send_msg(user_id, "Пожалуйста, укажите корректный возраст (14-100 лет)")
+                    return
+                user_data[current_field] = age
+            except ValueError:
+                self.send_msg(user_id, "Пожалуйста, укажите возраст цифрами")
+                return
         else:
             # Для остальных полей сохраняем как есть
-            user_data[current_field] = text.strip()
+            if not text:
+                self.send_msg(user_id, "Пожалуйста, введите значение")
+                return
+            user_data[current_field] = text
 
-        data_to_save = user_data.copy()
-        if 'vk_id' in data_to_save:
-            del data_to_save['vk_id']
+        # Обновляем данные состояния
+        self.state_manager.set_data(user_id, **user_data)
 
-        self.state_manager.set_data(user_id, **data_to_save)
-
-        # Проверка недостающих полей
-        missing_fields = [rf for rf in required_fields if not user_data.get(rf)]
+        # Проверяем, есть ли еще незаполненные поля
+        missing_fields = [rf for rf in required_fields if user_data.get(rf) is None]
         if missing_fields:
-            missing_fields_text = ", ".join(self.FIELD_NAMES_RU[f] for f in missing_fields)
-            self.send_msg(user_id, f"Пожалуйста, укажите {missing_fields_text}:")
-            return
+            next_field = missing_fields[0]
+            field_name = self.FIELD_NAMES_RU.get(next_field, next_field)
 
-        # Сохраняем пользователя в БД (с сессией)
-        with Session() as session:
-            save_user_from_vk(
-                session,
-                vk_id=int(user_data["vk_id"]),
-                first_name=user_data["first_name"],
-                last_name=user_data["last_name"],
-                vk_link=user_data["vk_link"],
-                age=int(user_data["age"]),
-                sex=user_data["sex"],
-                city=user_data["city"]
-            )
-        self.show_user_profile(user_id)
-        self.state_manager.clear_state(user_id)
-        self.send_msg(user_id, "Данные профиля сохранены", keyboard=self.keyboard)
-        logger.info(f"Пользователь {user_id} сохранён: {user_data}")
+            # Специальные подсказки для разных полей
+            if next_field == 'sex':
+                self.send_msg(user_id, f"Укажите ваш пол (мужской/женский):")
+            elif next_field == 'age':
+                self.send_msg(user_id, f"Укажите ваш возраст:")
+            elif next_field == 'city':
+                self.send_msg(user_id, f"Укажите ваш город:")
+            else:
+                self.send_msg(user_id, f"Пожалуйста, укажите {field_name}:")
+        else:
+            # Если все поля заполнены, сохраняем пользователя
+            with Session() as session:
+                save_user_from_vk(
+                    session,
+                    vk_id=user_id,
+                    first_name=user_data["first_name"],
+                    last_name=user_data["last_name"],
+                    vk_link=user_data["vk_link"],
+                    age=int(user_data["age"]),
+                    sex=user_data["sex"],
+                    city=user_data["city"]
+                )
+            self.show_user_profile(user_id)
+            self.state_manager.clear_state(user_id)
+            self.send_msg(user_id, "Данные профиля сохранены", keyboard=self.keyboard)
+            logger.info(f"Пользователь {user_id} сохранён: {user_data}")
 
     def handle_settings(self, user_id: int, text: str = ""):
         # Настройки поиска
@@ -397,6 +462,7 @@ class VkBot:
                 self.state_manager.set_state(user_id, "settings")
                 return
 
+
             # Обработка кнопок изменения настроек
             if text_lower == "изменить возраст":
                 self.send_msg(user_id, "Введите возраст в формате 'от-до', например: 25-35")
@@ -420,6 +486,8 @@ class VkBot:
 
             # Если команда не распознана, показываем настройки снова
             self.handle_settings(user_id, "настройки")
+
+
 
     @state_handler("waiting_for_age")
     def handle_age_input(self, user_id: int, text: str):
@@ -545,6 +613,14 @@ class VkBot:
 
         text_lower = text.lower()
 
+        # Всегда обрабатываем команду /start независимо от состояния
+        if text_lower in ["/start", "старт", "начать"]:
+            # Сбрасываем состояние
+            self.state_manager.clear_state(user_id)
+            # Обрабатываем команду старт
+            self.handle_start_command(user_id)
+            return
+
         # Проверяем текущее состояние
         current_state = self.state_manager.get_state(user_id)
 
@@ -571,68 +647,6 @@ class VkBot:
         # Если пользователь в состоянии заполнения полей
         if current_state == "fill_missing_fields":
             self.handle_fill_missing_fields(user_id, text)
-            return
-
-        # Обработка основных команд
-        if text_lower in ["/start", "старт", "начать"]:
-            with Session() as session:
-                # Если пользователь уже есть в базе
-                user_in_db = get_bot_user_by_vk_id(session, user_id)
-                if user_in_db:
-                    self.send_msg(user_id, "Вы уже начали работу с ботом. Вот ваша анкета:", keyboard=self.keyboard)
-                    self.show_user_profile(user_id)
-                    return
-
-            self.send_msg(user_id, "Привет! Я бот для знакомств 🔥", keyboard=self.keyboard)
-            self.state_manager.set_state(user_id, "start")
-
-            # Получаем данные пользователя из VK - используем пользовательский токен для VKUser
-            vk_user = VKUser(access_token=self.__user_token, user_id=user_id)
-            vk_info = vk_user.user_info()
-
-            if not vk_info or not vk_info.get("vk_id"):
-                self.send_msg(user_id, "Не удалось получить ваши данные из VK. Попробуйте позже.")
-                return
-
-            # Удаляем vk_id из vk_info перед передачей в set_data
-            vk_info_without_id = vk_info.copy()
-            if 'vk_id' in vk_info_without_id:
-                del vk_info_without_id['vk_id']
-
-            self.state_manager.set_data(user_id, **vk_info_without_id)
-            self.show_user_profile(user_id)
-
-            # Проверка недостающих полей
-            user_data = {**vk_info, **(self.state_manager.get_data(user_id) or {})}
-            required_fields = ["first_name", "last_name", "vk_link", "age", "sex", "city"]
-            missing_fields = [f for f in required_fields if not user_data.get(f)]
-
-            if missing_fields:
-                user_data_without_id = user_data.copy()
-                if 'vk_id' in user_data_without_id:
-                    del user_data_without_id['vk_id']
-
-                self.state_manager.set_data(user_id, **user_data_without_id)
-                self.state_manager.set_state(user_id, "fill_missing_fields")
-
-                missing_fields_text = ", ".join(self.FIELD_NAMES_RU[f] for f in missing_fields)
-
-                self.send_msg(user_id, f"Пожалуйста, укажите {missing_fields_text}:")
-            else:
-                with Session() as session:
-                    save_user_from_vk(
-                        session,
-                        vk_id=int(user_data["vk_id"]),
-                        first_name=user_data["first_name"],
-                        last_name=user_data["last_name"],
-                        vk_link=user_data["vk_link"],
-                        age=int(user_data["age"]),
-                        sex=user_data["sex"],
-                        city=user_data["city"]
-                    )
-                self.send_msg(user_id, "Данные профиля сохранены ✅", keyboard=self.keyboard)
-                logger.info(f"Пользователь {user_id} сохранён: {user_data}")
-
             return
 
         # Обработка команд главного меню
@@ -702,20 +716,34 @@ class VkBot:
                 self.send_msg(user_id, "Сначала заполните профиль!", keyboard=self.keyboard)
                 return
 
-            logger.info("=== ГИБКИЙ ПОИСК ===")
+            # Инициализируем переменные ДО использования
+            search_city = user.city or ""
+            search_age_min = 18  # значения по умолчанию
+            search_age_max = 45
+            search_sex = 0  # по умолчанию любой пол
 
-            # Определяем параметры поиска
-            search_city = user.city
-            search_age_min = 18
-            search_age_max = 45  # Расширим возраст
 
-            # Определяем пол для поиска
-            if user.sex == 2:  # пользователь мужчина
-                search_sex = 1  # ищем женщин
-            elif user.sex == 1:  # пользователь женщина
-                search_sex = 2  # ищем мужчин
+            prefs = get_search_preferences(session, user.id)
+
+            if prefs:
+                # Используем настройки пользователя
+                if prefs.search_city:
+                    search_city = prefs.search_city
+                if prefs.search_age_min:
+                    search_age_min = prefs.search_age_min
+                if prefs.search_age_max:
+                    search_age_max = prefs.search_age_max
+                if prefs.search_sex is not None:
+                    search_sex = prefs.search_sex
             else:
-                search_sex = 0  # любой пол
+                if user.sex == 2:  # пользователь мужчина
+                    search_sex = 1  # ищем женщин
+                elif user.sex == 1:  # пользователь женщина
+                    search_sex = 2  # ищем мужчин
+                else:
+                    search_sex = 0  # любой пол
+            logger.info("=== ГИБКИЙ ПОИСК ===")
+            logger.info(f"Параметры: город='{search_city}', возраст={search_age_min}-{search_age_max}, пол={search_sex}")
 
             # Пробуем разные стратегии поиска (от более узкого к более широкому)
             search_strategies = [
@@ -799,19 +827,19 @@ class VkBot:
             # Тест группового токена (бот)
             logger.info("Тестируем групповой токен...")
             group_info = self.vk.groups.getById()
-            logger.info(f"✓ Групповой токен работает. Группа: {group_info[0]['name']}")
+            logger.info(f"Групповой токен работает. Группа: {group_info[0]['name']}")
 
             # Тест пользовательского токена (поиск) - используем простой запрос
             logger.info("Тестируем пользовательский токен...")
             test_response = self.vk_searcher._make_request('users.get', {'user_ids': 1})
 
             if test_response:
-                logger.info(f"✓ Пользовательский токен работает. Тестовый пользователь получен")
+                logger.info(f"Пользовательский токен работает. Тестовый пользователь получен")
             else:
-                logger.error("✗ Пользовательский токен не возвращает данные. Возможно, недостаточно прав или токен невалиден.")
+                logger.error("Пользовательский токен не возвращает данные. Возможно, недостаточно прав или токен невалиден.")
 
         except Exception as e:
-            logger.error(f"✗ Ошибка подключения к VK API: {e}")
+            logger.error(f" Ошибка подключения к VK API: {e}")
             import traceback
             logger.error(f"Детали ошибки: {traceback.format_exc()}")
 
