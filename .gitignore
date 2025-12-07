@@ -2,3 +2,4 @@
 task.txt
 __pycache__/
 .env
+vkinder.log
