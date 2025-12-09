@@ -1,64 +1,77 @@
 import logging
+import sys
 from src.config import settings
 from src.vk_bot.vk_bot import VkBot
-from src.database.base import create_tables
+from src.database.base import create_tables, drop_tables
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler("vkinder.log"),
-        logging.StreamHandler()
+        logging.FileHandler("vkinder.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 
-def main():
-    logger.info("Запуск программы")
 
-    # ДОБАВЛЯЕМ ПРОВЕРКУ ТОКЕНОВ
-    logger.info(f"Групповой токен: {'ЕСТЬ' if settings.VK_GROUP_TOKEN else 'ОТСУТСТВУЕТ'}")
-    logger.info(f"Пользовательский токен: {'ЕСТЬ' if settings.VK_USER_TOKEN else 'ОТСУТСТВУЕТ'}")
+def check_tokens() -> bool:
+    """Проверка токенов"""
+    tokens_ok = True
+    messages = []
 
-    # Проверяем длину токенов (безопасный вывод)
-    if settings.VK_GROUP_TOKEN:
-        logger.info(f"Длина группового токена: {len(settings.VK_GROUP_TOKEN)} символов")
-    if settings.VK_USER_TOKEN:
-        logger.info(f"Длина пользовательского токена: {len(settings.VK_USER_TOKEN)} символов")
+    if not settings.VK_GROUP_TOKEN or "your_group_token" in settings.VK_GROUP_TOKEN:
+        messages.append("❌ Групповой токен не настроен!")
+        tokens_ok = False
 
-    # Проверяем, похожи ли токены на настоящие
-    if settings.VK_GROUP_TOKEN and settings.VK_GROUP_TOKEN == "your_group_token_here":
-        logger.error("Групповой токен не настроен! Укажите настоящий токен в .env файле")
-        return
+    if not settings.VK_USER_TOKEN or "your_user_token" in settings.VK_USER_TOKEN:
+        messages.append("❌ Пользовательский токен не настроен!")
+        tokens_ok = False
 
-    if settings.VK_USER_TOKEN and settings.VK_USER_TOKEN == "your_user_token_here":
-        logger.error("Пользовательский токен не настроен! Укажите настоящий токен в .env файле")
-        return
+    if messages:
+        for msg in messages:
+            logger.error(msg)
+        logger.info("\nКак получить токены:")
+        logger.info("1. Групповой токен: Настройки группы → Работа с API → Ключи доступа")
+        logger.info("2. Пользовательский токен: https://vk.com/dev/implicit_flow_user")
 
+    return tokens_ok
+
+
+def setup_database() -> bool:
+    """Настройка базы данных"""
     try:
-        create_tables()  # Создаем новые
-        logger.info("Новые таблицы созданы")
+        create_tables()
+        logger.info("Таблицы базы данных созданы")
+        return True
     except Exception as e:
         logger.error(f"Ошибка при создании таблиц: {e}")
-        return
+        return False
 
-    logger.info("Инициализация бота")
 
+def main():
+    """Основная функция запуска"""
+    logger.info("Запуск VKinder")
+
+    # Проверка токенов
+    if not check_tokens():
+        sys.exit(1)
+
+    # Настройка базы данных
+    if not setup_database():
+        sys.exit(1)
+
+    # Запуск бота
     try:
-        # Передаем оба токена: групповой для бота и пользовательский для поиска
         bot = VkBot(settings.VK_GROUP_TOKEN, settings.VK_USER_TOKEN)
-        logger.info("Бот инициализирован")
-    except Exception as e:
-        logger.error(f"Ошибка при инициализации бота: {e}")
-        return
-
-    logger.info("Запуск бота")
-    try:
+        logger.info("Бот инициализирован, запуск...")
         bot.run()
     except KeyboardInterrupt:
         logger.info("Бот остановлен пользователем")
     except Exception as e:
         logger.error(f"Ошибка при работе бота: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

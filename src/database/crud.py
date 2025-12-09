@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
-from src.database.models import BotUser, UserState, Profile, Photo, Favorite, Blacklist, SearchPreferences
+from src.database.models import BotUser, UserState, Profile, Photo, Favorite, Blacklist, SearchPreferences, ViewedProfiles
 from typing import List, Optional, Dict
+import random
+
 
 # ==================== Операции с пользователями ====================
 
@@ -53,7 +55,7 @@ def delete_bot_user(db: Session, bot_user_id: int) -> bool:
     return False
 
 def save_user_from_vk(db: Session, vk_id: int, first_name: str, last_name: str,
-vk_link: str, age: int, sex: str, city: str) -> BotUser:
+age: int, sex: str, city: str) -> BotUser:
     # Сохраняем пользователя из VK
     sex_int = None
 
@@ -207,27 +209,37 @@ def find_profiles_by_criteria(db: Session, city: str = None, age_min: int = None
 # ==================== Операции с фотографиями ====================
 
 def add_photos_to_profile(db: Session, profile_id: int, photos: List[Dict]) -> List[Photo]:
-    # Добавить фотографии к профилю
-    db.query(Photo).filter(Photo.profile_id == profile_id).delete() # Удаляем старые фотографии
+    # Получаем текущие фото
+    existing_photos = db.query(Photo).filter(
+        Photo.profile_id == profile_id
+    ).all()
 
-    # Добавляем новые
-    photo_objects = []
+    existing_urls = {p.photo_url for p in existing_photos}
+    new_photos = []
+
     for photo_data in photos:
-        photo = Photo(
-            profile_id=profile_id,
-            photo_url=photo_data['url'],
-            likes_count=photo_data.get('likes', 0)
-        )
-        db.add(photo)
-        photo_objects.append(photo)
+        photo_url = photo_data['url']
+
+        # Если фото уже есть, обновляем лайки
+        if photo_url in existing_urls:
+            existing = db.query(Photo).filter(
+                Photo.profile_id == profile_id,
+                Photo.photo_url == photo_url
+            ).first()
+            if existing:
+                existing.likes_count = photo_data.get('likes', existing.likes_count)
+        else:
+            # Добавляем новое фото
+            photo = Photo(
+                profile_id=profile_id,
+                photo_url=photo_url,
+                likes_count=photo_data.get('likes', 0)
+            )
+            db.add(photo)
+            new_photos.append(photo)
 
     db.commit()
-
-    # Обновляем ID для всех объектов
-    for photo in photo_objects:
-        db.refresh(photo)
-
-    return photo_objects
+    return new_photos
 
 def get_profile_photos(db: Session, profile_id: int) -> List[Photo]:
     # Получить фотографии профиля
@@ -359,7 +371,7 @@ def delete_search_preferences(db: Session, bot_user_id: int) -> bool:
 
 # ==================== Операции с поиском ====================
 
-def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> List[Profile]:
+def save_search_results(db: Session, users: List[Dict]) -> List[Profile]:
     # Сохранить результаты в базу данных
     saved_profiles = []
     for user_data in users:
@@ -393,67 +405,85 @@ def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> Lis
     return saved_profiles
 
 def get_next_search_profile(db: Session, bot_user_id: int) -> Optional[Profile]:
-    # Получить следующий профиль для поиска
     bot_user = get_bot_user_by_vk_id(db, bot_user_id)
     if not bot_user:
         return None
 
-    # Получаем предпочтения поиска
-    preferences = get_search_preferences(db, bot_user.id)
 
-    # Начинаем строить запрос
+
+    # Базовый запрос
     query = db.query(Profile)
 
-    # Если предпочтения есть, то применяем фильтры
-    if preferences:
-        if preferences.search_city:
-            query = query.filter(Profile.city == preferences.search_city)
-        if preferences.search_age_min:
-            query = query.filter(Profile.age >= preferences.search_age_min)
-        if preferences.search_age_max:
-            query = query.filter(Profile.age <= preferences.search_age_max)
-        if preferences.search_sex:
-            query = query.filter(Profile.sex == preferences.search_sex)
+    # Добавляем фильтры по настройкам поиска
+    prefs = get_search_preferences(db, bot_user.id)
+    if prefs:
+        if prefs.search_city:
+            query = query.filter(Profile.city == prefs.search_city)
+        if prefs.search_age_min:
+            query = query.filter(Profile.age >= prefs.search_age_min)
+        if prefs.search_age_max:
+            query = query.filter(Profile.age <= prefs.search_age_max)
+        if prefs.search_sex and prefs.search_sex != 0:
+            query = query.filter(Profile.sex == prefs.search_sex)
 
-    # Получаем все профили, которые соответствуют запросу
-    all_profiles = query.all()
+    # Исключаем избранное
+    fav_subq = db.query(Favorite.profile_id).filter(
+        Favorite.bot_user_id == bot_user.id
+    ).subquery()
+    query = query.filter(Profile.id.notin_(fav_subq))
 
-    # Исключаем уже просмотренные (в черном списке) и избранное
-    blacklisted_ids = [bl.profile_id for bl in bot_user.blacklist]
-    favorites_ids = [fav.profile_id for fav in bot_user.favorites]
+    # Исключаем черный список
+    black_subq = db.query(Blacklist.profile_id).filter(
+        Blacklist.bot_user_id == bot_user.id
+    ).subquery()
+    query = query.filter(Profile.id.notin_(black_subq))
 
-    excluded_ids = set(blacklisted_ids + favorites_ids)
+    # Исключаем просмотренные
+    viewed_subq = db.query(ViewedProfiles.profile_id).filter(
+        ViewedProfiles.bot_user_id == bot_user.id
+    ).subquery()
+    query = query.filter(Profile.id.notin_(viewed_subq))
 
-    # Фильтруем профили, исключая уже просмотренные и избранные
-    available_profiles = [profile for profile in all_profiles if profile.id not in excluded_ids]
+    # Берем случайный профиль
+    count = query.count()
+    if count == 0:
+        return None
+    return query.offset(random.randint(0, count - 1)).first()
 
-    # Если есть доступные профили, возвращаем случайный
-    if available_profiles:
-        import random
-        return random.choice(available_profiles)
-
-    return None
-
-def add_to_viewed(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
-    # Добавить профиль в просмотренные (используем для этого черный список)
+def add_to_viewed_profiles(db: Session, bot_user_id: int, profile_id: int):
+    # Добавляем профиль в просмотренные
+    from src.database.models import ViewedProfiles
     # Проверяем, не добавлен ли уже
-    existing = db.query(Blacklist).filter(
-        Blacklist.bot_user_id == bot_user_id,
-        Blacklist.profile_id == profile_id
+    existing = db.query(ViewedProfiles).filter(
+        ViewedProfiles.bot_user_id == bot_user_id,
+        ViewedProfiles.profile_id == profile_id
     ).first()
 
     if existing:
         return existing
 
-    # Добавляем в черный список как просмотренный
-    blacklist_entry = Blacklist(
+    viewed = ViewedProfiles(
         bot_user_id=bot_user_id,
         profile_id=profile_id
     )
-    db.add(blacklist_entry)
+    db.add(viewed)
     db.commit()
-    db.refresh(blacklist_entry)
-    return blacklist_entry
+    db.refresh(viewed)
+    return viewed
+
+def is_viewed(db: Session, bot_user_id: int, profile_id: int) -> bool:
+    # Проверяем, просмотрен ли профиль
+    from src.database.models import ViewedProfiles
+    return db.query(ViewedProfiles).filter(
+        ViewedProfiles.bot_user_id == bot_user_id,
+        ViewedProfiles.profile_id == profile_id
+    ).first() is not None
+
+def get_viewed_profiles(db: Session, bot_user_id: int) -> List[Profile]:
+    # Получаем просмотренные профили
+    from src.database.models import ViewedProfiles
+    viewed = db.query(ViewedProfiles).filter(ViewedProfiles.bot_user_id == bot_user_id).all()
+    return [entry.profile for entry in viewed]
 
 # ==================== Операции с лайками фотографий ====================
 

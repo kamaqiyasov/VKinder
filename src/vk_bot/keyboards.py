@@ -3,12 +3,20 @@ from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 class VkBotKeyboards:
     @staticmethod
     def create_main_keyboard():
-        # Основная клавиатура
+        # Основная клавиатура для существующих пользователей
         keyboard = VkKeyboard(one_time=False)
         keyboard.add_button('Поиск', color=VkKeyboardColor.PRIMARY)
         keyboard.add_button('Избранное', color=VkKeyboardColor.SECONDARY)
         keyboard.add_line()
         keyboard.add_button('Настройки', color=VkKeyboardColor.SECONDARY)
+        keyboard.add_button('Помощь', color=VkKeyboardColor.SECONDARY)
+        return keyboard
+
+    @staticmethod
+    def create_welcome_keyboard():
+        # Приветственная клавиатура для новых пользователей
+        keyboard = VkKeyboard(one_time=False)
+        keyboard.add_button('Старт', color=VkKeyboardColor.POSITIVE)
         keyboard.add_button('Помощь', color=VkKeyboardColor.SECONDARY)
         return keyboard
 
@@ -41,7 +49,9 @@ class VkBotKeyboards:
         keyboard.add_button("Изменить город", color=VkKeyboardColor.PRIMARY)
         keyboard.add_line()
         keyboard.add_button("Изменить пол", color=VkKeyboardColor.PRIMARY)
-        keyboard.add_button("Назад", color=VkKeyboardColor.NEGATIVE)
+        keyboard.add_button("Очистить историю", color=VkKeyboardColor.NEGATIVE)
+        keyboard.add_line()
+        keyboard.add_button("Назад", color=VkKeyboardColor.SECONDARY)
         return keyboard
 
     @staticmethod
