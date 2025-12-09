@@ -53,6 +53,12 @@ class Profile(Base):
     favorites = relationship('Favorite', back_populates='profile')
     blacklist = relationship('Blacklist', back_populates='profile')
 
+    __table_args__ = (
+        Index('idx_profile_city', 'city'),
+        Index('idx_profile_age', 'age'),
+        Index('idx_profile_sex', 'sex'),
+    )
+
 class Photo(Base):
     __tablename__ = 'photos'
 
