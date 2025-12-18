@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 class SearchHandlers:
     
-    def __init__(self, vk_client: VKClient, send_message_callback=None) -> None:
+    def __init__(self, vk_client: VKClient, api, send_message_callback=None) -> None:
+        self.api = api
         self.send_message = send_message_callback
         self.vk_client = vk_client
         self.search_sessions: Dict[int, Dict] = {}
@@ -39,20 +40,20 @@ class SearchHandlers:
         exclude_ids.append(vk_id)
         logger.info(f"Исключаем {len(exclude_ids)} пользователей из поиска")
         
-        # 5. Формируем параметры для VK API
+        # Формируем параметры для VK API
         search_params = self._build_search_params(settings)
-        
-        print(search_params)
-        
+                
         try:
-            vk_results = self.vk_client.search_users(**search_params)
-            logger.info(f"VK API вернул {len(vk_results)} результатов")
+            # vk_results = self.vk_client.search_users(**search_params)
+            all_results = self._get_all_search_results(search_params)
+            exit()
+            logger.info(f"VK API вернул {len(all_results)} результатов")
         except Exception as e:
             logger.error(f"Ошибка VK API: {e}")
             return "Ошибка при поиске. Попробуйте позже.", None, None
         
         # Фильтруем результаты
-        filtered_results = self._filter_search_results(vk_results, exclude_ids)
+        filtered_results = self._filter_search_results(all_results, exclude_ids)
         logger.info(f"После фильтрации осталось {len(filtered_results)} кандидатов")
         
         # Сохраняем сессию поиска
@@ -65,6 +66,60 @@ class SearchHandlers:
         
         # Показываем первого кандидата
         return self._show_current_candidate(vk_id)
+    
+    def _get_all_search_results(self, params: Dict) -> List[Dict]:
+        """Получает пользователей пачками по 100 с увеличением offset"""
+        
+        all_users = []
+        offset = 0
+        
+        while True:
+            # Устанавливаем параметры для текущего запроса
+            current_params = params.copy()
+            current_params['count'] = 100
+            current_params['offset'] = offset
+            
+            logger.info(f"Запрос: offset={offset}, count=100")
+            
+            try:
+                # Делаем запрос к VK API
+                response = self.vk_client.search_users(**current_params)
+                
+                # Получаем список пользователей
+                if isinstance(response, dict):
+                    batch = response.get('items', [])
+                else:
+                    batch = response
+                
+                print(len(batch))
+                
+                # Если нет пользователей - выходим
+                if not batch:
+                    logger.info(f"Нет пользователей на offset {offset}")
+                    break
+                
+                # Добавляем пользователей в общий список
+                all_users.extend(batch)
+                logger.info(f"Получили {len(batch)} пользователей, всего: {len(all_users)}")
+                
+                # Если получили меньше 100, значит это последняя пачка
+                if len(batch) < 100:
+                    logger.info("Это последняя пачка")
+                    break
+                
+                # Увеличиваем offset для следующего запроса
+                offset += 100
+                
+                # Делаем паузу между запросами
+                import time
+                time.sleep(0.34)
+                
+            except Exception as e:
+                logger.error(f"Ошибка при запросе: {e}")
+                break
+        
+        logger.info(f"Всего получено: {len(all_users)} пользователей")
+        return all_users
     
     def get_candidate_attachment(self, candidate_data: Dict) -> Optional[str]:
         """Формирует attachment для фото кандидата"""
@@ -133,7 +188,7 @@ class SearchHandlers:
     def _build_search_params(self, settings) -> Dict:
         """Формирует параметры для VK API поиска из SearchSettings"""
         params = {
-            'count': 1000,
+            'sort': 0,
             'fields': 'photo_orig,photo_id,city,sex,bdate,can_access_closed',
             'status': 1,
             'has_photo': 1 if settings.has_photo else 0,

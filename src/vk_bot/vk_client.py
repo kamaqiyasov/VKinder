@@ -6,8 +6,9 @@ import vk_api
 logger = logging.getLogger(__name__)
 
 class VKClient:
-    def __init__(self, user_token: Optional[str] = None) -> None:
+    def __init__(self, vk_id: int, user_token: Optional[str] = None) -> None:
         self.token = user_token
+        self.vk_id = vk_id
         self.vk = None
         if user_token:
             self.set_token(user_token)
@@ -38,11 +39,11 @@ class VKClient:
         
         return False
     
-    def get_user_info(self, vk_id: int) -> dict:
+    def get_user_info(self) -> dict:
         """Получает информацию о пользователе ВК"""
         if not self.vk:
             return {}
-        response = self.vk.users.get(user_ids=vk_id, fields="city,sex,bdate,photo_max_orig")
+        response = self.vk.users.get(user_ids=self.vk_id, fields="city,sex,bdate,photo_max_orig")
         if not response:
             return {}
             
@@ -70,7 +71,7 @@ class VKClient:
             count = response.get('count', [])
             items = response.get('items', [])
             logger.info(f"VK нашел {count} пользователей, вернул {len(items)}")
-            return items
+            return response
         except Exception as e:
             logger.error(f"Ошибка: {e}")
             return []

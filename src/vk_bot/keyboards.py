@@ -1,3 +1,4 @@
+from typing import Optional
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 def get_start_keyboard():
@@ -67,5 +68,14 @@ def get_blacklist_keyboard(show_main_menu: bool = False):
     keyboard.add_button('Далее', color=VkKeyboardColor.SECONDARY)
     keyboard.add_line()
     keyboard.add_button('Очистить все', color=VkKeyboardColor.NEGATIVE)
+    
+    return keyboard.get_keyboard()
+
+def get_auth_keyboard(auth_url: Optional[str] = None):
+    keyboard = VkKeyboard(one_time=False, inline=True)
+    if auth_url:
+        keyboard.add_openlink_button("Авторизоваться в VK", link=auth_url)
+        keyboard.add_line()
+    keyboard.add_button("Проверить авторизацию", color=VkKeyboardColor.POSITIVE)
     
     return keyboard.get_keyboard()
