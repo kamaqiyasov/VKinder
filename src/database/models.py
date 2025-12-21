@@ -59,6 +59,12 @@ class Profile(Base):
         Index('idx_profile_sex', 'sex'),
     )
 
+    __table_args__ = (
+        Index('idx_profile_city', 'city'),
+        Index('idx_profile_age', 'age'),
+        Index('idx_profile_sex', 'sex'),
+    )
+
 class Photo(Base):
     __tablename__ = 'photos'
 
