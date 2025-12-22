@@ -76,3 +76,12 @@ CREATE TABLE viewed_profiles (
     viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bot_user_id, profile_id)
 );
+-- Таблица для лайков фотографий
+CREATE TABLE photo_likes (
+    id SERIAL PRIMARY KEY,
+    bot_user_id INTEGER REFERENCES bot_users(id) ON DELETE CASCADE,
+    profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
+    photo_url VARCHAR(500) NOT NULL,
+    liked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_user_id, photo_url)
+);

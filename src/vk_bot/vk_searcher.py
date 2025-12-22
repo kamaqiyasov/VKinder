@@ -1,5 +1,4 @@
 import requests
-import random
 import time
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -10,16 +9,17 @@ logger = logging.getLogger(__name__)
 
 class VKAPIError(Exception):
     """Кастомное исключение для ошибок VK API"""
-    pass
 
 
 class RateLimiter:
     """Ограничитель запросов к VK API"""
 
-    def __init__(self, max_requests_per_second: float = 3.0):
+    def __init__(self, max_requests_per_second: float = 2.0):
         self.max_requests_per_second = max_requests_per_second
         self.min_interval = 1.0 / max_requests_per_second
         self.last_request_time = 0
+        self.request_count = 0
+        self.reset_time = time.time()
 
     def wait_if_needed(self):
         """Ожидание при необходимости"""
@@ -58,7 +58,7 @@ class VKSearcher:
         })
 
         try:
-            response = self.session.get(url, params=params, timeout=10)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -73,6 +73,12 @@ class VKSearcher:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Ошибка сети при запросе к {method}: {e}")
+            return None
+        except requests.exceptions.Timeout:
+            logger.error("Таймаут запроса к VK API")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error("Ошибка соединения с VK API")
             return None
         except Exception as e:
             logger.error(f"Неожиданная ошибка при запросе к {method}: {e}")
@@ -206,51 +212,115 @@ class VKSearcher:
         except (ValueError, AttributeError):
             return None
 
+    def get_user_tagged_photos(self, user_id: int) -> List[Dict]:
+        """Получение фотографий, где отмечен пользователь"""
+        params = {
+            'user_id': user_id,
+            'count': 30,
+            'extended': 1
+        }
+
+        response = self._make_request('photos.getUserPhotos', params)
+
+        if not response:
+            return []
+
+        items = response.get('items', [])
+
+        # Сортируем по лайкам и берем топ-3
+        sorted_photos = sorted(
+            items,
+            key=lambda x: x.get('likes', {}).get('count', 0),
+            reverse=True
+        )[:3]
+
+        photos = []
+        for photo in sorted_photos:
+            sizes = photo.get('sizes', [])
+            if sizes:
+                # Берем фото максимального размера
+                size_types = ['w', 'z', 'y', 'x', 'm', 's']
+                selected_size = None
+
+                for size_type in size_types:
+                    for size in sizes:
+                        if size.get('type') == size_type:
+                            selected_size = size
+                            break
+                    if selected_size:
+                        break
+
+                if selected_size:
+                    photos.append({
+                        'url': selected_size['url'],
+                        'likes': photo.get('likes', {}).get('count', 0),
+                        'owner_id': photo.get('owner_id'),
+                        'id': photo.get('id')
+                    })
+
+        return photos
+
     def smart_search_users(self, city: str, age_from: int, age_to: int,
                            sex: int = 0, target_count: int = 1500) -> List[Dict]:
         """Умный поиск с обходом ограничений VK API"""
+        try:
+            if city is None and sex == 0:
+                logger.warning("Мало параметров для поиска, будут использованы широкие критерии")
 
-        if city is None and sex == 0:
-            logger.warning("Мало параметров для поиска, будут использованы широкие критерии")
+            MAX_REQUESTS = 10  # Ограничение VK API
+            all_users = []
+            requests_made = 0
 
-        # Добавить проверку на максимальное количество запросов
-        MAX_REQUESTS = 10  # Ограничение VK API
-        all_users = []
-        requests_made = 0
+            # Стратегии поиска с ограничением по количеству запросов
+            strategies = [
+                {"sort": 0, "offset_range": range(0, 1000, 100)},  # по популярности
+                {"sort": 1, "offset_range": range(0, 500, 100)},   # по дате регистрации
+            ]
 
-        # Стратегии поиска с ограничением по количеству запросов
-        strategies = [
-            {"sort": 0, "offset_range": range(0, 1000, 100)},  # по популярности
-            {"sort": 1, "offset_range": range(0, 500, 100)},   # по дате регистрации
-        ]
-
-        for strategy in strategies:
-            if len(all_users) >= target_count or requests_made >= MAX_REQUESTS:
-                break
-
-            for offset in strategy["offset_range"]:
+            for strategy in strategies:
                 if len(all_users) >= target_count or requests_made >= MAX_REQUESTS:
                     break
 
-                users = self.search_users(
-                    city=city,
-                    age_from=age_from,
-                    age_to=age_to,
-                    sex=sex,
-                    offset=offset,
-                    sort=strategy["sort"]
-                )
-                requests_made += 1
+                for offset in strategy["offset_range"]:
+                    if len(all_users) >= target_count or requests_made >= MAX_REQUESTS:
+                        break
 
-                if users:
-                    existing_ids = {u['vk_id'] for u in all_users}
-                    new_users = [u for u in users if u['vk_id'] not in existing_ids]
-                    all_users.extend(new_users)
+                    users = self.search_users(
+                        city=city,
+                        age_from=age_from,
+                        age_to=age_to,
+                        sex=sex,
+                        offset=offset,
+                        sort=strategy["sort"]
+                    )
+                    requests_made += 1
 
-        return all_users[:target_count]
+                    if users:
+                        existing_ids = {u['vk_id'] for u in all_users}
+                        new_users = [u for u in users if u['vk_id'] not in existing_ids]
+                        all_users.extend(new_users)
 
-    def get_user_photos(self, user_id: int) -> List[Dict]:
-        """Получение фотографий пользователя"""
+            return all_users[:target_count]
+        except Exception as e:
+            logger.error(f"Ошибка поиска: {e}")
+        return []
+
+    def get_user_photos(self, user_id: int, include_tagged: bool = False) -> List[Dict]:
+        """Получение фотографий пользователя (профиль + отмеченные)"""
+        profile_photos = self.get_user_profile_photos(user_id)
+
+        if include_tagged:
+            tagged_photos = self.get_user_tagged_photos(user_id)
+            # Объединяем и сортируем по лайкам
+            all_photos = profile_photos + tagged_photos
+            all_photos.sort(key=lambda x: x.get('likes', 0), reverse=True)
+            return all_photos[:6]  # Возвращаем до 6 фото
+
+        return profile_photos
+
+
+    def get_user_profile_photos(self, user_id: int) -> List[Dict]:
+        """Получение только фотографий профиля"""
         params = {
             'owner_id': user_id,
             'album_id': 'profile',
@@ -297,3 +367,73 @@ class VKSearcher:
                     })
 
         return photos
+
+    def search_by_interests(self, city: str, interests: List[str], age_from: int = 18,
+                            age_to: int = 45, sex: int = 0, limit: int = 100) -> List[Dict]:
+        """Поиск пользователей по интересам через группы"""
+
+        found_users = []
+
+        for interest in interests[:3]:  # Ограничиваем 3 интересами
+            # Ищем группы по интересу
+            groups = self._make_request('groups.search', {
+                'q': interest,
+                'count': 20,
+                'sort': 6  # по количеству участников
+            })
+
+            if not groups or not groups.get('items'):
+                continue
+
+            group_ids = [group['id'] for group in groups['items'][:5]]  # Берем топ-5 групп
+
+            for group_id in group_ids:
+                # Получаем участников группы
+                members = self._make_request('groups.getMembers', {
+                    'group_id': group_id,
+                    'count': 100,
+                    'fields': 'sex,bdate,city'
+                })
+
+                if not members:
+                    continue
+
+                # Фильтруем по параметрам
+                for user in members.get('items', []):
+                    if user.get('is_closed', False):
+                        continue
+
+                    # Проверяем возраст
+                    age = self._calculate_age(user.get('bdate'))
+                    if not (age_from <= age <= age_to):
+                        continue
+
+                    # Проверяем пол
+                    if sex != 0 and user.get('sex', 0) != sex:
+                        continue
+
+                    # Проверяем город
+                    user_city = user.get('city', {}).get('title') if user.get('city') else None
+                    if city and user_city and user_city.lower() != city.lower():
+                        continue
+
+                    # Добавляем пользователя
+                    parsed_user = {
+                        'vk_id': user['id'],
+                        'first_name': user.get('first_name', ''),
+                        'last_name': user.get('last_name', ''),
+                        'profile_url': self._get_profile_url(user),
+                        'age': age,
+                        'sex': user.get('sex', 0),
+                        'city': user_city,
+                        'interests': [interest]
+                    }
+
+                    # Проверяем дубликаты
+                    if not any(u['vk_id'] == parsed_user['vk_id'] for u in found_users):
+                        found_users.append(parsed_user)
+
+                    if len(found_users) >= limit:
+                        return found_users
+
+        return found_users

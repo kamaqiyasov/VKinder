@@ -2,12 +2,12 @@ import logging
 import sys
 from src.config import settings
 from src.vk_bot.vk_bot import VkBot
-from src.database.base import create_tables, drop_tables
+from src.database.base import create_tables
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="%(asctime)s [%(levelname)-8s] %(name)-20s: %(message)s",
     handlers=[
         logging.FileHandler("vkinder.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def check_tokens() -> bool:
-    """Проверка токенов"""
+    # Проверка токенов
     tokens_ok = True
     messages = []
 
@@ -40,7 +40,7 @@ def check_tokens() -> bool:
 
 
 def setup_database() -> bool:
-    """Настройка базы данных"""
+    # Создание таблиц
     try:
         create_tables()
         logger.info("Таблицы базы данных созданы")
@@ -51,7 +51,7 @@ def setup_database() -> bool:
 
 
 def main():
-    """Основная функция запуска"""
+    # Основная функция запуска
     logger.info("Запуск VKinder")
 
     # Проверка токенов

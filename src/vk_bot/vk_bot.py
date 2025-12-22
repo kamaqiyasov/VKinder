@@ -1,5 +1,4 @@
 import logging
-import sys
 from typing import Dict, List, Optional, Callable
 from vk_api import VkApi
 from vk_api.longpoll import VkLongPoll, VkEventType
@@ -12,14 +11,14 @@ from src.database.crud import (
     get_next_search_profile, add_to_favorites, add_to_viewed_profiles,
     create_or_update_search_preferences, get_search_preferences,
     add_photos_to_profile, get_favorites, is_in_favorites,
-    is_in_blacklist, add_to_blacklist, delete_user_state,
-    get_profile_by_vk_id, create_or_update_user_state, get_user_state
+    is_in_blacklist, add_to_blacklist, get_top_profile_photos,
+    is_photo_liked, remove_photo_like, add_photo_like,
+    get_user_photo_likes
 )
 from src.vk_bot.keyboards import VkBotKeyboards
 from src.database.statemanager import StateManager
 from src.vk_bot.vk_searcher import VKSearcher
 from src.database.models import Blacklist, ViewedProfiles
-from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,8 @@ class VkBot:
         "settings": ["настройки"],
         "help": ["помощь"],
         "next": ["➡️ далее", "далее", "next"],
-        "like": ["❤️ в избранное", "в избранное", "избранное", "лайк"],
+        "like": ["❤️ в избранное", "в избранное", "избранное"],
+        "my_likes": ["мои лайки", "лайки"],
         "dislike": ["👎 в черный список", "не нравится", "в черный список", "черный список"],
         "menu": ["🔙 в меню", "в меню", "меню", "🏠 в меню"],
         "back": ["назад"]
@@ -165,7 +165,7 @@ class VkBot:
             if sex_value == 1:
                 return "Женский"
             elif sex_value == 2:
-                return "Мужской"
+                return "Мужский"
             elif sex_value == 0:
                 return "Любой"
 
@@ -383,8 +383,12 @@ class VkBot:
 
             sex_display = self._format_sex(profile.sex)
 
-            # Получаем фотографии через VKSearcher
-            photos = self.vk_searcher.get_user_photos(profile.vk_id)
+            # Получаем фотографии через VKSearcher с обработкой ошибок
+            photos = []
+            try:
+                photos = self.vk_searcher.get_user_photos(profile.vk_id, include_tagged=True)
+            except Exception as e:
+                logger.error(f"Ошибка получения фотографий для пользователя {profile.vk_id}: {e}")
 
             # Сохраняем фото в БД
             if photos:
@@ -520,11 +524,10 @@ class VkBot:
                               f"👎 {profile.first_name} {profile.last_name} добавлен(а) в черный список!",
                               keyboard=self.keyboards['viewing'])
 
-            # После добавления в черный список показываем следующий профиль
-            self.show_next_profile(user_id)
+            
 
     def handle_settings(self, user_id: int, text: str = "") -> None:
-        """Настройки поиска"""
+        # Настройки поиска
         with Session() as session:
             user = get_bot_user_by_vk_id(session, user_id)
             if not user:
@@ -538,12 +541,17 @@ class VkBot:
                 # Показываем текущие настройки
                 prefs = get_search_preferences(session, user.id)
                 if prefs:
+                    city_display = prefs.search_city if prefs.search_city else (user.city if user.city else 'не установлен')
+                    sex_display = self._format_sex(prefs.search_sex) if prefs.search_sex is not None else 'любой'
+                    min_age_display = prefs.search_age_min if prefs.search_age_min else '18 (по умолчанию)'
+                    max_age_display = prefs.search_age_max if prefs.search_age_max else '45 (по умолчанию)'
+
                     message = (
                         "⚙️ Ваши текущие настройки поиска:\n\n"
-                        f"• Минимальный возраст: {prefs.search_age_min if prefs.search_age_min else '18 (по умолчанию)'}\n"
-                        f"• Максимальный возраст: {prefs.search_age_max if prefs.search_age_max else '45 (по умолчанию)'}\n"
-                        f"• Город: {prefs.search_city if prefs.search_city else user.city if user.city else 'не установлен'}\n"
-                        f"• Пол: {self._format_sex(prefs.search_sex) if prefs.search_sex is not None else 'любой'}\n\n"
+                        f"• Минимальный возраст: {min_age_display}\n"
+                        f"• Максимальный возраст: {max_age_display}\n"
+                        f"• Город: {city_display}\n"
+                        f"• Пол: {sex_display}\n\n"
                         "Используйте кнопки ниже для изменения настроек:"
                     )
                 else:
@@ -594,7 +602,7 @@ class VkBot:
 
     @state_handler("waiting_for_age")
     def handle_age_input(self, user_id: int, text: str) -> None:
-        """Обработка ввода возраста"""
+        # Обработка ввода возраста
         text_lower = text.lower()
 
         if text_lower in ["назад", "отмена"]:
@@ -610,19 +618,28 @@ class VkBot:
                 max_age = int(max_age.strip())
 
                 if min_age < 18:
-                    self.send_message(user_id,
-                                      "❌ Минимальный возраст не может быть меньше 18 лет. Попробуйте снова:",
-                                      keyboard=self.keyboards['settings'])
+                    self.send_message(
+                        user_id,
+                        "❌ Минимальный возраст не может быть меньше 18 лет. "
+                        "Попробуйте снова:",
+                        keyboard=self.keyboards['settings']
+                    )
                     return
                 if max_age > 99:
-                    self.send_message(user_id,
-                                      "❌ Максимальный возраст не может быть больше 99 лет. Попробуйте снова:",
-                                      keyboard=self.keyboards['settings'])
+                    self.send_message(
+                        user_id,
+                        "❌ Максимальный возраст не может быть больше 99 лет. "
+                        "Попробуйте снова:",
+                        keyboard=self.keyboards['settings']
+                    )
                     return
                 if min_age > max_age:
-                    self.send_message(user_id,
-                                      "❌ Минимальный возраст не может быть больше максимального. Попробуйте снова:",
-                                      keyboard=self.keyboards['settings'])
+                    self.send_message(
+                        user_id,
+                        "❌ Минимальный возраст не может быть больше максимального. "
+                        "Попробуйте снова:",
+                        keyboard=self.keyboards['settings']
+                    )
                     return
 
                 with Session() as session:
@@ -643,17 +660,23 @@ class VkBot:
                                           keyboard=self.keyboards['main'])
                         self.state_manager.clear_state(user_id)
             else:
-                self.send_message(user_id,
-                                  "❌ Неправильный формат. Используйте формат: от-до, например: 25-35",
-                                  keyboard=self.keyboards['settings'])
+                self.send_message(
+                    user_id,
+                    "❌ Неправильный формат. Используйте формат: от-до, "
+                    "например: 25-35",
+                    keyboard=self.keyboards['settings']
+                )
         except (ValueError, IndexError):
-            self.send_message(user_id,
-                              "❌ Неправильный формат возраста. Используйте формат: от-до, например: 25-35",
-                              keyboard=self.keyboards['settings'])
+            self.send_message(
+                user_id,
+                "❌ Неправильный формат возраста. Используйте формат: от-до, "
+                "например: 25-35",
+                keyboard=self.keyboards['settings']
+            )
 
     @state_handler("waiting_for_city")
     def handle_city_input(self, user_id: int, text: str) -> None:
-        """Обработка ввода города"""
+        # Обработка ввода города
         text_lower = text.lower()
 
         if text_lower in ["назад", "отмена"]:
@@ -664,7 +687,8 @@ class VkBot:
 
         if not text.strip():
             self.send_message(user_id,
-                              "❌ Название города не может быть пустым. Попробуйте снова:",
+                              "❌ Название города не может быть пустым. "
+                              "Попробуйте снова:",
                               keyboard=self.keyboards['settings'])
             return
 
@@ -683,7 +707,7 @@ class VkBot:
 
     @state_handler("waiting_for_sex")
     def handle_sex_input(self, user_id: int, text: str) -> None:
-        """Обработка ввода пола"""
+        # Обработка ввода пола
         text_lower = text.lower()
 
         if text_lower in ["назад", "отмена"]:
@@ -700,16 +724,19 @@ class VkBot:
         sex_value = sex_mapping.get(text_lower)
 
         if sex_value is None:
-            self.send_message(user_id,
-                              "❌ Неправильное значение пола. Используйте: мужской, женский или любой",
-                              keyboard=self.keyboards['settings'])
+            self.send_message(
+                user_id,
+                "❌ Неправильное значение пола. Используйте: "
+                "мужской, женский или любой",
+                keyboard=self.keyboards['settings']
+            )
             return
 
         with Session() as session:
             user = get_bot_user_by_vk_id(session, user_id)
             if user:
                 create_or_update_search_preferences(session, user.id, search_sex=sex_value)
-                sex_display = self._format_sex(search_sex)
+                sex_display = self._format_sex(sex_value)
                 self.send_message(user_id,
                                   f"✅ Пол для поиска установлен: {sex_display}",
                                   keyboard=self.keyboards['settings'])
@@ -719,8 +746,65 @@ class VkBot:
                                   keyboard=self.keyboards['main'])
                 self.state_manager.clear_state(user_id)
 
+    @state_handler("waiting_for_photo_choice")
+    def handle_photo_choice(self, user_id: int, text: str) -> None:
+        # Обработка выбора лайка под фото
+        text_lower = text.lower().strip()
+
+        if text_lower in ["отмена", "назад"]:
+            self.send_message(user_id, "Отмена лайка фото",
+                              keyboard=self.keyboards['viewing'])
+            self.state_manager.clear_state(user_id)
+            return
+
+        try:
+            choice = int(text_lower)
+            with Session() as session:
+                user = get_bot_user_by_vk_id(session, user_id)
+                if not user:
+                    self.send_message(user_id, "Пользователь не найден",
+                                      keyboard=self.keyboards['main'])
+                    self.state_manager.clear_state(user_id)
+                    return
+
+                # Получаем последний просмотренный профиль
+                last_viewed = session.query(ViewedProfiles).filter(
+                    ViewedProfiles.bot_user_id == user.id
+                ).order_by(ViewedProfiles.viewed_at.desc()).first()
+
+                if not last_viewed:
+                    self.send_message(user_id, "Профиль не найден",
+                                      keyboard=self.keyboards['main'])
+                    self.state_manager.clear_state(user_id)
+                    return
+
+                profile = last_viewed.profile
+                photos = get_top_profile_photos(session, profile.id)
+
+                if 1 <= choice <= len(photos):
+                    selected_photo = photos[choice - 1]
+
+                    # Проверяем, не лайкнуто ли уже
+                    if is_photo_liked(session, user.id, selected_photo.photo_url):
+                        remove_photo_like(session, user.id, selected_photo.photo_url)
+                        self.send_message(user_id, f"👎 Лайк убран с фотографии",
+                                          keyboard=self.keyboards['viewing'])
+                    else:
+                        add_photo_like(session, user.id, profile.id, selected_photo.photo_url)
+                        self.send_message(user_id, f"❤️ Вы поставили лайк на фотографию!",
+                                          keyboard=self.keyboards['viewing'])
+                else:
+                    self.send_message(user_id, f"Неверный номер. Выберите от 1 до {len(photos)}",
+                                      keyboard=self.keyboards['viewing'])
+
+        except ValueError:
+            self.send_message(user_id, "Введите номер фотографии цифрами",
+                              keyboard=self.keyboards['viewing'])
+
+        self.state_manager.clear_state(user_id)
+
     def start_search(self, user_id: int) -> None:
-        """Поиск"""
+        # Поиск
         with Session() as session:
             user = get_bot_user_by_vk_id(session, user_id)
             if not user:
@@ -752,9 +836,10 @@ class VkBot:
             )
             self.send_message(user_id, info_msg)
 
-            logger.info(f"=== НАЧАЛО ПОИСКА ===")
+            logger.info("=== НАЧАЛО ПОИСКА ===")
             logger.info(f"Пользователь: {user.first_name} {user.last_name}")
-            logger.info(f"Параметры: город='{search_city}', возраст={search_age_min}-{search_age_max}, пол={search_sex}")
+            logger.info("Параметры: город='%s', возраст=%s-%s, пол=%s",
+                        search_city, search_age_min, search_age_max, search_sex)
 
             try:
                 # Используем умный поиск
@@ -820,7 +905,7 @@ class VkBot:
                     return
 
                 # Сохраняем результаты
-                saved_profiles = save_search_results(session,found_users)
+                saved_profiles = save_search_results(session, found_users)
 
                 if saved_profiles:
                     success_msg = (
@@ -845,7 +930,7 @@ class VkBot:
                                   keyboard=self.keyboards['main'])
 
     def clear_search_history(self, user_id: int) -> None:
-        """Очистить историю поиска"""
+        # Очистка историю поиска
         with Session() as session:
             user = get_bot_user_by_vk_id(session, user_id)
             if user:
@@ -860,7 +945,7 @@ class VkBot:
                         ViewedProfiles.bot_user_id == user.id
                     ).delete()
                 except Exception:
-                    pass  # Таблица может не существовать
+                    pass
 
                 session.commit()
 
@@ -872,8 +957,52 @@ class VkBot:
                 self.send_message(user_id, "Пользователь не найден",
                                   keyboard=self.keyboards['main'])
 
+    def show_photo_likes_menu(self, user_id: int):
+        # Показываем меню лайков на фотографиях
+        with Session() as session:
+            user = get_bot_user_by_vk_id(session, user_id)
+            if not user:
+                self.send_message(user_id, "Пользователь не найден",
+                                  keyboard=self.keyboards['main'])
+                return
+
+            liked_photos = get_user_photo_likes(session, user.id)
+
+            if not liked_photos:
+                message = "У вас пока нет лайков на фотографиях.\n\n"
+                message += "Чтобы поставить лайк:\n"
+                message += "1. Нажмите 'Поиск' для просмотра анкет\n"
+                message += "2. Выберите анкету с фотографиями\n"
+                message += "3. Нажмите '👍 Лайк фото'\n"
+                message += "4. Выберите номер фотографии"
+                self.send_message(user_id, message, keyboard=self.keyboards['main'])
+                return
+
+            # Группируем лайки по профилю
+            from collections import defaultdict
+            profile_likes = defaultdict(list)
+            for like in liked_photos:
+                profile_likes[like.profile].append(like)
+
+            message = f"❤️ Ваши лайки ({len(liked_photos)} фото):\n\n"
+
+            for profile, likes in list(profile_likes.items())[:10]:  # Показываем первые 10 профилей
+                message += f"👤 {profile.first_name} {profile.last_name}:\n"
+                message += f"   🔗 {profile.profile_url}\n"
+                for like in likes[:3]:  # Показываем до 3 фото на профиль
+                    message += f"   📷 Фото: {like.photo_url[:50]}...\n"
+                message += "\n"
+
+            if len(liked_photos) > 30:
+                message += f"... и еще {len(liked_photos) - 30} фото"
+
+            # Разбиваем длинное сообщение
+            messages = self._split_long_message(message)
+            for msg_part in messages:
+                self.send_message(user_id, msg_part, keyboard=self.keyboards['main'])
+
     def handle_message(self, user_id: int, text: str) -> None:
-        """Обработка входящего сообщения"""
+        # Обработка входящих сообщений
         logger.info(f"Новое сообщение от {user_id}: {text}")
 
         try:
@@ -905,6 +1034,34 @@ class VkBot:
                     self.send_message(user_id, welcome_message,
                                       keyboard=self.keyboards['welcome'])
                     return
+
+            # Обработка специальных команд (должны быть до общих команд типа "like")
+            if "лайк фото" in text_lower:
+                with Session() as session:
+                    user = get_bot_user_by_vk_id(session, user_id)
+                    if user:
+                        last_viewed = session.query(ViewedProfiles).filter(
+                            ViewedProfiles.bot_user_id == user.id
+                        ).order_by(ViewedProfiles.viewed_at.desc()).first()
+
+                        if last_viewed:
+                            photos = get_top_profile_photos(session, last_viewed.profile_id)
+                            if photos:
+                                message = "Выберите фотографию для лайка:\n\n"
+                                for i, photo in enumerate(photos, 1):
+                                    message += f"{i}. Фото ({photo.likes_count} лайков)\n"
+
+                                self.send_message(user_id, message,
+                                                  keyboard=VkBotKeyboards.create_photo_choice_keyboard())
+                                self.state_manager.set_state(user_id, "waiting_for_photo_choice")
+                                return
+
+                self.send_message(user_id, "Сначала просмотрите профиль с фотографиями")
+                return
+
+            if "мои лайки" in text_lower:
+                self.show_photo_likes_menu(user_id)
+                return
 
             # Обработка команд главного меню
             if text_lower == "поиск":
@@ -1001,7 +1158,7 @@ class VkBot:
                               keyboard=self.keyboards['main'])
 
     def run(self) -> None:
-        """Запуск бота"""
+        # Запуск бота
         logger.info("Бот запущен")
 
         try:

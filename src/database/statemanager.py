@@ -6,14 +6,15 @@ from src.database.crud import get_user_state, create_or_update_user_state, delet
 
 logger = logging.getLogger(__name__)
 
+
 class StateManager:
-    """Менеджер состояний пользователей"""
+    # Менеджер состояний пользователей
 
     def __init__(self) -> None:
         self.Session = Session
 
     def set_state(self, vk_id: int, state: str) -> bool:
-        """Установка состояния пользователя"""
+        # Установка состояния пользователя
         try:
             with Session() as session:
                 create_or_update_user_state(session, vk_id, state)
@@ -23,7 +24,7 @@ class StateManager:
             return False
 
     def get_state(self, vk_id: int) -> Optional[str]:
-        """Получение состояния пользователя"""
+        # Получение состояния пользователя
         try:
             with Session() as session:
                 user_state = get_user_state(session, vk_id)
@@ -32,9 +33,8 @@ class StateManager:
             logger.error(f"Ошибка получения состояния пользователя {vk_id}: {e}")
             return None
 
-
     def update_data(self, vk_id: int, **kwargs) -> Dict:
-        """Обновление данных состояния"""
+        # Обновление данных состояния
         with Session() as session:
             user_state = get_user_state(session, vk_id)
             if user_state:
@@ -47,7 +47,7 @@ class StateManager:
                 return kwargs
 
     def set_data(self, vk_id: int, **kwargs) -> None:
-        """Установка данных состояния (полная замена)"""
+        # Установка данных состояния ( полная замена )
         with Session() as session:
             user_state = get_user_state(session, vk_id)
             current_state = user_state.current_state if user_state else 'start'
@@ -59,7 +59,7 @@ class StateManager:
             create_or_update_user_state(session, vk_id, current_state, data_to_save)
 
     def get_data(self, vk_id: int, key: str = None) -> Any:
-        """Получение данных состояния"""
+        # Получение данных состояния
         with Session() as session:
             user_state = get_user_state(session, vk_id)
             if user_state and user_state.state_data:
@@ -67,6 +67,6 @@ class StateManager:
             return None if key else {}
 
     def clear_state(self, vk_id: int) -> None:
-        """Очистка состояния пользователя"""
+        # Очистка состояния пользователя
         with Session() as session:
             delete_user_state(session, vk_id)

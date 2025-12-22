@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from src.config import settings
 from src.database.models import Base
 
+
 class DatabaseManager:
     def __init__(self):
         self.engine = create_engine(
@@ -31,16 +32,20 @@ class DatabaseManager:
     def get_session(self):
         return self.Session()
 
+
 # Глобальный менеджер базы данных
 db_manager = DatabaseManager()
+
 
 def create_tables():
     db_manager.create_tables()
     return True
 
+
 def drop_tables():
     db_manager.drop_tables()
     return True
+
 
 def Session():
     return db_manager.get_session()
