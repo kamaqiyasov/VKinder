@@ -1,6 +1,12 @@
 from sqlalchemy.orm import Session
-from src.database.models import BotUser, UserState, Profile, Photo, Favorite, Blacklist, SearchPreferences
+from src.database.models import (
+    BotUser, UserState, Profile, Photo, Favorite,
+    Blacklist, SearchPreferences, ViewedProfiles,
+    PhotoLike
+)
 from typing import List, Optional, Dict
+import random
+
 
 # ==================== Операции с пользователями ====================
 
@@ -8,9 +14,11 @@ def get_bot_user(db: Session, bot_user_id: int) -> Optional[BotUser]:
     # Получить пользователя бота по ID
     return db.query(BotUser).filter(BotUser.id == bot_user_id).first()
 
+
 def get_bot_user_by_vk_id(db: Session, vk_id: int) -> Optional[BotUser]:
     # Получить пользователя бота по VK ID
     return db.query(BotUser).filter(BotUser.vk_id == vk_id).first()
+
 
 def create_or_update_bot_user(db: Session, vk_id: int, first_name: str, last_name: str,
                               age: int = None, sex: int = None, city: str = None) -> BotUser:
@@ -43,6 +51,7 @@ def create_or_update_bot_user(db: Session, vk_id: int, first_name: str, last_nam
     db.refresh(existing_user)
     return existing_user
 
+
 def delete_bot_user(db: Session, bot_user_id: int) -> bool:
     # Удалить пользователя бота
     user = db.query(BotUser).filter(BotUser.id == bot_user_id).first()
@@ -52,8 +61,9 @@ def delete_bot_user(db: Session, bot_user_id: int) -> bool:
         return True
     return False
 
+
 def save_user_from_vk(db: Session, vk_id: int, first_name: str, last_name: str,
-vk_link: str, age: int, sex: str, city: str) -> BotUser:
+                      age: int, sex: str, city: str) -> BotUser:
     # Сохраняем пользователя из VK
     sex_int = None
 
@@ -90,43 +100,50 @@ vk_link: str, age: int, sex: str, city: str) -> BotUser:
 
 # ==================== Операции с состояниями ====================
 
+
 def get_user_state(db: Session, vk_id: int) -> Optional[UserState]:
-    # Получить состояние пользователя
+    """Получить состояние пользователя"""
     return db.query(UserState).filter(UserState.vk_id == vk_id).first()
 
-def create_or_update_user_state(db: Session, vk_id: int, state: str, state_data: Dict = None) -> UserState:
-    # Создать или обновить состояние пользователя
+
+def create_or_update_user_state(db: Session, vk_id: int, state: str = None, state_data: Dict = None) -> UserState:
+    """Создать или обновить состояние пользователя"""
     existing_state = db.query(UserState).filter(UserState.vk_id == vk_id).first()
 
     if existing_state:
-        existing_state.current_state = state
+        if state is not None:
+            existing_state.current_state = state
         if state_data is not None:
-            existing_state.state_data = state_data
+            existing_state.set_data(state_data)
     else:
         existing_state = UserState(
-            vk_id=vk_id,
-            current_state=state,
-            state_data=state_data or {}
+            vk_id=vk_id
         )
+        if state is not None:
+            existing_state.current_state = state
+        if state_data is not None:
+            existing_state.set_data(state_data)
         db.add(existing_state)
 
     db.commit()
     db.refresh(existing_state)
     return existing_state
 
+
 def update_user_state_data(db: Session, vk_id: int, **kwargs) -> Optional[UserState]:
-    # Обновить данные состояния пользователя
+    """Обновить данные состояния пользователя"""
     state = db.query(UserState).filter(UserState.vk_id == vk_id).first()
     if state:
-        current_data = state.state_data or {}
+        current_data = state.get_data()
         current_data.update(kwargs)
-        state.state_data = current_data
+        state.set_data(current_data)
         db.commit()
         db.refresh(state)
     return state
 
+
 def delete_user_state(db: Session, vk_id: int) -> bool:
-    # Удалить состояние пользователя
+    """Удалить состояние пользователя"""
     state = db.query(UserState).filter(UserState.vk_id == vk_id).first()
     if state:
         db.delete(state)
@@ -136,13 +153,16 @@ def delete_user_state(db: Session, vk_id: int) -> bool:
 
 # ==================== Операции с профилями ====================
 
+
 def get_profile(db: Session, profile_id: int) -> Optional[Profile]:
     # Получить профиль по ID
     return db.query(Profile).filter(Profile.id == profile_id).first()
 
+
 def get_profile_by_vk_id(db: Session, vk_id: int) -> Optional[Profile]:
     # Получить профиль по VK ID
     return db.query(Profile).filter(Profile.vk_id == vk_id).first()
+
 
 def create_or_update_profile(db: Session, vk_id: int, first_name: str, last_name: str,
                              profile_url: str = None, age: int = None, sex: int = None,
@@ -177,6 +197,7 @@ def create_or_update_profile(db: Session, vk_id: int, first_name: str, last_name
     db.refresh(existing_profile)
     return existing_profile
 
+
 def delete_profile(db: Session, profile_id: int) -> bool:
     # Удалить профиль
     profile = db.query(Profile).filter(Profile.id == profile_id).first()
@@ -185,6 +206,7 @@ def delete_profile(db: Session, profile_id: int) -> bool:
         db.commit()
         return True
     return False
+
 
 def find_profiles_by_criteria(db: Session, city: str = None, age_min: int = None,
                               age_max: int = None, sex: int = None, exclude_vk_ids: List[int] = None) -> List[Profile]:
@@ -206,38 +228,54 @@ def find_profiles_by_criteria(db: Session, city: str = None, age_min: int = None
 
 # ==================== Операции с фотографиями ====================
 
-def add_photos_to_profile(db: Session, profile_id: int, photos: List[Dict]) -> List[Photo]:
-    # Добавить фотографии к профилю
-    db.query(Photo).filter(Photo.profile_id == profile_id).delete() # Удаляем старые фотографии
 
-    # Добавляем новые
-    photo_objects = []
+def add_photos_to_profile(db: Session, profile_id: int, photos: List[Dict]) -> List[Photo]:
+    # Получаем текущие фото
+    existing_photos = db.query(Photo).filter(
+        Photo.profile_id == profile_id
+    ).all()
+
+    existing_urls = {p.photo_url for p in existing_photos}
+    new_photos = []
+
     for photo_data in photos:
-        photo = Photo(
-            profile_id=profile_id,
-            photo_url=photo_data['url'],
-            likes_count=photo_data.get('likes', 0)
-        )
-        db.add(photo)
-        photo_objects.append(photo)
+        photo_url = photo_data['url']
+
+        # Если фото уже есть, обновляем лайки
+        if photo_url in existing_urls:
+            existing = db.query(Photo).filter(
+                Photo.profile_id == profile_id,
+                Photo.photo_url == photo_url
+            ).first()
+            if existing:
+                existing.likes_count = photo_data.get('likes', existing.likes_count)
+        else:
+            # Добавляем новое фото
+            photo = Photo(
+                profile_id=profile_id,
+                photo_url=photo_url,
+                likes_count=photo_data.get('likes', 0)
+            )
+            db.add(photo)
+            new_photos.append(photo)
 
     db.commit()
+    return new_photos
 
-    # Обновляем ID для всех объектов
-    for photo in photo_objects:
-        db.refresh(photo)
-
-    return photo_objects
 
 def get_profile_photos(db: Session, profile_id: int) -> List[Photo]:
     # Получить фотографии профиля
     return db.query(Photo).filter(Photo.profile_id == profile_id).order_by(Photo.likes_count.desc()).all()
 
+
 def get_top_profile_photos(db: Session, profile_id: int, limit: int = 3) -> List[Photo]:
-    # Получить топ-фотографии профиля
-    return db.query(Photo).filter(Photo.profile_id == profile_id).order_by(Photo.likes_count.desc()).limit(limit).all()
+    # Получить топ фотографии профиля
+    return db.query(Photo).filter(
+        Photo.profile_id == profile_id
+    ).order_by(Photo.likes_count.desc()).limit(limit).all()
 
 # ==================== Операции с избранными  ====================
+
 
 def add_to_favorites(db: Session, bot_user_id: int, profile_id: int) -> Favorite:
     # Добавить профиль в избранное
@@ -250,10 +288,12 @@ def add_to_favorites(db: Session, bot_user_id: int, profile_id: int) -> Favorite
     db.refresh(favorite)
     return favorite
 
+
 def get_favorites(db: Session, bot_user_id: int) -> List[Profile]:
     # Получить избранные профили пользователя
     favorites = db.query(Favorite).filter(Favorite.bot_user_id == bot_user_id).all()
     return [favorite.profile for favorite in favorites]
+
 
 def remove_from_favorites(db: Session, bot_user_id: int, profile_id: int) -> bool:
     # Удалить профиль из избранного
@@ -268,6 +308,7 @@ def remove_from_favorites(db: Session, bot_user_id: int, profile_id: int) -> boo
         return True
     return False
 
+
 def is_in_favorites(db: Session, bot_user_id: int, profile_id: int) -> bool:
     # Проверить, находится ли профиль в избранном
     return db.query(Favorite).filter(
@@ -276,6 +317,7 @@ def is_in_favorites(db: Session, bot_user_id: int, profile_id: int) -> bool:
     ).first() is not None
 
 # ==================== Операции с черным списком  ====================
+
 
 def add_to_blacklist(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
     # Добавить профиль в черный список
@@ -288,10 +330,12 @@ def add_to_blacklist(db: Session, bot_user_id: int, profile_id: int) -> Blacklis
     db.refresh(blacklist)
     return blacklist
 
+
 def get_blacklist(db: Session, bot_user_id: int) -> List[Profile]:
     # Получить черный список пользователя
     blacklist_entries = db.query(Blacklist).filter(Blacklist.bot_user_id == bot_user_id).all()
     return [entry.profile for entry in blacklist_entries]
+
 
 def remove_from_blacklist(db: Session, bot_user_id: int, profile_id: int) -> bool:
     # Удалить профиль из черного списка
@@ -306,6 +350,7 @@ def remove_from_blacklist(db: Session, bot_user_id: int, profile_id: int) -> boo
         return True
     return False
 
+
 def is_in_blacklist(db: Session, bot_user_id: int, profile_id: int) -> bool:
     # Проверить, находится ли профиль в черном списке
     return db.query(Blacklist).filter(
@@ -315,9 +360,11 @@ def is_in_blacklist(db: Session, bot_user_id: int, profile_id: int) -> bool:
 
 # ==================== Операции с поиском ====================
 
+
 def get_search_preferences(db: Session, bot_user_id: int) -> Optional[SearchPreferences]:
     # Получить поисковые предпочтения пользователя
     return db.query(SearchPreferences).filter(SearchPreferences.bot_user_id == bot_user_id).first()
+
 
 def create_or_update_search_preferences(db: Session, bot_user_id: int, search_sex: int = None,
                                         search_age_min: int = None, search_age_max: int = None,
@@ -348,6 +395,7 @@ def create_or_update_search_preferences(db: Session, bot_user_id: int, search_se
     db.refresh(preferences)
     return preferences
 
+
 def delete_search_preferences(db: Session, bot_user_id: int) -> bool:
     # Удалить поисковые предпочтения пользователя
     preferences = db.query(SearchPreferences).filter(SearchPreferences.bot_user_id == bot_user_id).first()
@@ -359,7 +407,8 @@ def delete_search_preferences(db: Session, bot_user_id: int) -> bool:
 
 # ==================== Операции с поиском ====================
 
-def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> List[Profile]:
+
+def save_search_results(db: Session, users: List[Dict]) -> List[Profile]:
     # Сохранить результаты в базу данных
     saved_profiles = []
     for user_data in users:
@@ -392,73 +441,93 @@ def save_search_results(db: Session, bot_user_id: int, users: List[Dict]) -> Lis
     db.commit()
     return saved_profiles
 
+
 def get_next_search_profile(db: Session, bot_user_id: int) -> Optional[Profile]:
-    # Получить следующий профиль для поиска
     bot_user = get_bot_user_by_vk_id(db, bot_user_id)
     if not bot_user:
         return None
 
-    # Получаем предпочтения поиска
-    preferences = get_search_preferences(db, bot_user.id)
-
-    # Начинаем строить запрос
+    # Базовый запрос
     query = db.query(Profile)
 
-    # Если предпочтения есть, то применяем фильтры
-    if preferences:
-        if preferences.search_city:
-            query = query.filter(Profile.city == preferences.search_city)
-        if preferences.search_age_min:
-            query = query.filter(Profile.age >= preferences.search_age_min)
-        if preferences.search_age_max:
-            query = query.filter(Profile.age <= preferences.search_age_max)
-        if preferences.search_sex:
-            query = query.filter(Profile.sex == preferences.search_sex)
+    # Добавляем фильтры по настройкам поиска
+    prefs = get_search_preferences(db, bot_user.id)
+    if prefs:
+        if prefs.search_city:
+            query = query.filter(Profile.city == prefs.search_city)
+        if prefs.search_age_min:
+            query = query.filter(Profile.age >= prefs.search_age_min)
+        if prefs.search_age_max:
+            query = query.filter(Profile.age <= prefs.search_age_max)
+        if prefs.search_sex and prefs.search_sex != 0:
+            query = query.filter(Profile.sex == prefs.search_sex)
 
-    # Получаем все профили, которые соответствуют запросу
-    all_profiles = query.all()
+    # Исключаем избранное
+    fav_subq = db.query(Favorite.profile_id).filter(
+        Favorite.bot_user_id == bot_user.id
+    ).scalar_subquery()
+    query = query.filter(~Profile.id.in_(fav_subq))
 
-    # Исключаем уже просмотренные (в черном списке) и избранное
-    blacklisted_ids = [bl.profile_id for bl in bot_user.blacklist]
-    favorites_ids = [fav.profile_id for fav in bot_user.favorites]
+    # Исключаем черный список
+    black_subq = db.query(Blacklist.profile_id).filter(
+        Blacklist.bot_user_id == bot_user.id
+    ).scalar_subquery()
+    query = query.filter(Profile.id.notin_(black_subq))
 
-    excluded_ids = set(blacklisted_ids + favorites_ids)
+    # Исключаем просмотренные
+    viewed_subq = db.query(ViewedProfiles.profile_id).filter(
+        ViewedProfiles.bot_user_id == bot_user.id
+    ).scalar_subquery()
+    query = query.filter(Profile.id.notin_(viewed_subq))
 
-    # Фильтруем профили, исключая уже просмотренные и избранные
-    available_profiles = [profile for profile in all_profiles if profile.id not in excluded_ids]
+    # Берем случайный профиль
+    count = query.count()
+    if count == 0:
+        return None
+    return query.offset(random.randint(0, count - 1)).first()
 
-    # Если есть доступные профили, возвращаем случайный
-    if available_profiles:
-        import random
-        return random.choice(available_profiles)
 
-    return None
-
-def add_to_viewed(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
-    # Добавить профиль в просмотренные (используем для этого черный список)
+def add_to_viewed_profiles(db: Session, bot_user_id: int, profile_id: int):
+    # Добавляем профиль в просмотренные
+    from src.database.models import ViewedProfiles
     # Проверяем, не добавлен ли уже
-    existing = db.query(Blacklist).filter(
-        Blacklist.bot_user_id == bot_user_id,
-        Blacklist.profile_id == profile_id
+    existing = db.query(ViewedProfiles).filter(
+        ViewedProfiles.bot_user_id == bot_user_id,
+        ViewedProfiles.profile_id == profile_id
     ).first()
 
     if existing:
         return existing
 
-    # Добавляем в черный список как просмотренный
-    blacklist_entry = Blacklist(
+    viewed = ViewedProfiles(
         bot_user_id=bot_user_id,
         profile_id=profile_id
     )
-    db.add(blacklist_entry)
+    db.add(viewed)
     db.commit()
-    db.refresh(blacklist_entry)
-    return blacklist_entry
+    db.refresh(viewed)
+    return viewed
+
+
+def is_viewed(db: Session, bot_user_id: int, profile_id: int) -> bool:
+    # Проверяем, просмотрен ли профиль
+    from src.database.models import ViewedProfiles
+    return db.query(ViewedProfiles).filter(
+        ViewedProfiles.bot_user_id == bot_user_id,
+        ViewedProfiles.profile_id == profile_id
+    ).first() is not None
+
+
+def get_viewed_profiles(db: Session, bot_user_id: int) -> List[Profile]:
+    # Получаем просмотренные профили
+    from src.database.models import ViewedProfiles
+    viewed = db.query(ViewedProfiles).filter(ViewedProfiles.bot_user_id == bot_user_id).all()
+    return [entry.profile for entry in viewed]
 
 # ==================== Операции с лайками фотографий ====================
 
-"""def add_photo_like(db: Session, bot_user_id: int, profile_id: int, photo_url: str) -> PhotoLike:
-    # Добавить лайк фото
+def add_photo_like(db: Session, bot_user_id: int, profile_id: int, photo_url: str) -> PhotoLike:
+    # Добавить лайк на фото
     like = PhotoLike(
         bot_user_id=bot_user_id,
         profile_id=profile_id,
@@ -469,8 +538,9 @@ def add_to_viewed(db: Session, bot_user_id: int, profile_id: int) -> Blacklist:
     db.refresh(like)
     return like
 
+
 def remove_photo_like(db: Session, bot_user_id: int, photo_url: str) -> bool:
-    # Удалить лайк фото
+    # Удалить лайк с фото
     like = db.query(PhotoLike).filter(
         PhotoLike.bot_user_id == bot_user_id,
         PhotoLike.photo_url == photo_url
@@ -482,15 +552,17 @@ def remove_photo_like(db: Session, bot_user_id: int, photo_url: str) -> bool:
         return True
     return False
 
+
 def get_user_photo_likes(db: Session, bot_user_id: int) -> List[PhotoLike]:
-    # Получить все лайки фото пользователя
+    # Получить все лайки пользователя
     return db.query(PhotoLike).filter(
         PhotoLike.bot_user_id == bot_user_id
     ).all()
 
+
 def is_photo_liked(db: Session, bot_user_id: int, photo_url: str) -> bool:
-    # Проверить, лайкнута ли фото
+    # Проверить, лайкнуто ли фото
     return db.query(PhotoLike).filter(
         PhotoLike.bot_user_id == bot_user_id,
         PhotoLike.photo_url == photo_url
-    ).first() is not None"""
+    ).first() is not None
