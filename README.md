@@ -1,7 +1,7 @@
 # VKinder — Бот для знакомств ВКонтакте
-https://img.shields.io/badge/Python-3.9+-blue.svg
-https://img.shields.io/badge/PostgreSQL-15+-336791.svg
-https://img.shields.io/badge/VK_API-5.131-4a76a8.svg
+![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
+![PosgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)
+![VK_API](https://img.shields.io/badge/VK_API-5.131-4a76a8.svg)
 ## О проекте
 
 VKinder — это интеллектуальный бот для поиска знакомств ВКонтакте, разработанный командой студентов курса Нетологии. Бот использует VK API для поиска подходящих людей по заданным критериям и предоставляет удобный интерфейс для взаимодействия.
